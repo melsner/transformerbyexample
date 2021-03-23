@@ -24,7 +24,7 @@ def writeInstances(ofn, instances):
     with open(ofn, "w") as ofh:
         for (lemma, targ, exLemma, exForm, code) in instances:
             src = "%s:%s>%s" % (lemma, exLemma, exForm)
-            ofh.write("%s\t%s\tLANG_%s\n" % (src, targ, code))
+            ofh.write("%s\t%s\tLANG_%s;FAM_%s\n" % (src, targ, code[0], code[1]))
 
 def fakeInflection(cset, lemma, ex):
     aLengthD = [ (1, .2), (2, .2), (3, .2), (4, .2), (5, .2) ]
@@ -56,7 +56,7 @@ def fakeInflection(cset, lemma, ex):
 
     code = "-".join(code)
 
-    return targ, exForm, code
+    return targ, exForm, (code, "synthetic")
 
 def discoverVocab(dpath):
     charSets = defaultdict(Counter)
@@ -64,6 +64,7 @@ def discoverVocab(dpath):
     lemmaLengths = []
     formLengths = []
     knownFiles = set()
+    families = {}
     for root, dirs, files in os.walk(dpath):
         for fi in files:
             if fi.endswith("test-covered") or fi.endswith(".tst"):
@@ -73,10 +74,16 @@ def discoverVocab(dpath):
 
             knownFiles.add(fi)
             lang = fi
+            family = None
             valid = False
             for code in ["-dev", "-test", "-train-low", "-train-high", ".dev", ".trn"]:
                 if code in lang:
+                    if lang.endswith(".dev") or lang.endswith(".trn"):
+                        #set lang fam for 2020
+                        family = os.path.basename(root)
+
                     lang = lang.replace(code, "")
+                    families[lang] = family
                     valid = True
 
             if not valid:
@@ -84,7 +91,7 @@ def discoverVocab(dpath):
 
             dfile = root + "/" + fi
 
-            print("Reading", dfile, "for", lang)
+            print("Reading", dfile, "for", lang, "in", family)
 
             rawData = np.loadtxt(dfile, dtype=str, delimiter="\t")
             charSet = Counter()
@@ -111,9 +118,9 @@ def discoverVocab(dpath):
     maxLemma = max(lemmaLengths) #np.percentile(lemmaLengths, cutoff)
     maxForm = max(formLengths) #np.percentile(formLengths, cutoff)
 
-    return charSets, allFeats, maxLemma, maxForm, lemmaLengths, formLengths
+    return charSets, families, allFeats, maxLemma, maxForm, lemmaLengths, formLengths
 
-def syntheticInstances(num, charSets, strLengthD):
+def syntheticInstances(num, charSets, families, strLengthD):
     res = []
 
     #generate a "word" containing each valid char, in blocks of 10
@@ -124,7 +131,7 @@ def syntheticInstances(num, charSets, strLengthD):
             targ = lemma
             exLemma = lemma
             exForm = lemma
-            res.append((lemma, targ, exLemma, exForm, lang))
+            res.append((lemma, targ, exLemma, exForm, (lang, families[lang])))
 
     langs = list(charSets.keys())
     for ii in range(num):
@@ -162,7 +169,7 @@ if __name__ == "__main__":
     run = args.run
     dpath = args.data
 
-    charSets, feats, maxLemma, maxForm, lemmaLengths, formLengths = discoverVocab(dpath)
+    charSets, families, feats, maxLemma, maxForm, lemmaLengths, formLengths = discoverVocab(dpath)
 
     print(len(charSets), "charsets")
     for lang, chs in charSets.items():
@@ -186,7 +193,7 @@ if __name__ == "__main__":
     if args.targ_length == -1:
         args.targ_length = int(5 + maxForm)
 
-    instances = syntheticInstances(11000, charSets, strLengthD)
+    instances = syntheticInstances(11000, charSets, families, strLengthD)
     devSet = instances[-1000:]
     trainSet = instances[:-1000]
     os.makedirs("inflect_%s" % run, exist_ok=True)

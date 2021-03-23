@@ -24,40 +24,63 @@ if __name__ == "__main__":
     print("Arguments parsed")
     run = args.run
 
+    os.makedirs(run, exist_ok=True)
+
     print("Parsing flags")
     variant = 0
     modelVariant = 0
-    workdir = "inflect_%s/model%d" % (run, variant)
+    workdir = "%s/model%d" % (run, variant)
     while os.path.exists(workdir):
         if os.path.exists(workdir + "/checkpoints"):
             modelVariant = variant
 
         variant += 1
-        workdir = "inflect_%s/model%d" % (run, variant)
+        workdir = "%s/model%d" % (run, variant)
     flags = S2SFlags(args, workdir)
-    #flags.train = "inflect_%s/train.txt" % run
     flags.train = None
-    flags.dev = "inflect_%s/dev.txt" % run
+    flags.dev = "%s/dev.txt" % run
     if args.devset:
         flags.dev = args.devset
-        workdir = "inflect_%s/%s" % (run, os.path.dirname(args.devset) + "-" + os.path.basename(args.devset))
+        workdir = "%s/%s" % (run, os.path.basename(os.path.dirname(args.devset)) + "-" + os.path.basename(args.devset))
+        print("Naming work dir", workdir)
         flags.work_dir = workdir
 
     #look for a checkpoint
     if args.load_other:
-        print("Loading from pretrained checkpoint", args.load_other)
+        if not args.load_other.endswith(".index"):
+            print("Searching for latest checkpoint")
+            best = 0
+            bestC = None
+
+            for cpt in os.listdir(args.load_other):
+                if cpt.endswith(".index"):
+                    cptN = int(cpt.replace(".index", "").split("-")[1])
+                    if cptN > best:
+                        best = cptN
+                        bestC = cpt
+
+            assert(bestC is not None)
+            args.load_other += "/" + bestC
+            print("Using", args.load_other)
+        else:
+            print("Loading from pretrained checkpoint", args.load_other)
+
         flags.checkpoint_to_restore = os.path.abspath(args.load_other)
 
     elif variant > 0:
         print("Model dir exists, looking for checkpoint")
-        cpdir = os.path.abspath("inflect_%s/model%d/checkpoints/" % (run, modelVariant))
+        cpdir = os.path.abspath("%s/model%d/checkpoints/" % (run, variant - 1))
         cpt = None
+        best = 0
         for fi in os.listdir(cpdir):
             if fi.endswith(".index"):
-                cpt = cpdir + "/" + fi
+                cptN = int(fi.replace(".index", "").split("-")[1])
+                if cptN > best:
+                    cpt = cpdir + "/" + fi
+                    best = cptN
         assert(cpt is not None)
-        print("Checkpoint", cpt)
         cpt.replace(".index", "")
+        print("Checkpoint", cpt)
         flags.checkpoint_to_restore = cpt
 
     print("Starting run")

@@ -61,6 +61,7 @@ def writeDevFiles(run, dpath):
 def runDev(run, langs, args, cpt):
     for lang in langs:
         workdir = "%s/%s/infer" % (run, lang)
+        os.system("rm -rf %s" % workdir)
         flags = S2SFlags(args, workdir)
         flags.train = None
         flags.dev = "%s/%s/dev.txt" % (run, lang)
