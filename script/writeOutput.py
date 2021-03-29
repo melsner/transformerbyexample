@@ -91,7 +91,11 @@ def writeOfficial(paired, dev, ofh):
             ofh.write("%s\t%s\t%s\n" % (lemma, lemma, feats))
 
     print("Adjusted score: %d/%d %.2g" % (adjScore, total, adjScore / total))
-    print("Selector peformance: %d/%d %.2g" % (varScore, varCases, varScore / varCases))
+    if varCases == 0:
+        selPerf = 1
+    else:
+        selPerf = varScore / varCases
+    print("Selector performance: %d/%d %.2g" % (varScore, varCases, selPerf))
     print("Score within coverage: %d/%d %.2g" % (adjScore, totalCovered, adjScore / totalCovered))
 
 if __name__ == "__main__":
@@ -126,10 +130,11 @@ if __name__ == "__main__":
     iScore = 0
     total = len(paired)
     for devItem, insts in paired.items():
-        if len(insts) == 5:
+        if len(insts) > 0:# == 5:
             coverage += 1
         else:
-            assert(len(insts) == 0)
+            #print(insts)
+            #assert(len(insts) == 0)
             continue #not applicable to scoring rules
 
         if np.all([correct is True for (src, targ, pred, correct) in insts]):

@@ -1,4 +1,5 @@
 import sys
+import os
 
 CACHE = {}
 def edist(s1, s2):
@@ -81,3 +82,23 @@ def get_size(obj, seen=None):
     elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
         size += sum([get_size(i, seen) for i in obj])
     return size
+
+def findLatestModel(filePath):
+    if filePath.endswith(".index"):
+        return filePath
+    else:
+        print("Searching for latest checkpoint in", filePath)
+        best = 0
+        bestC = None
+
+        for cpt in os.listdir(filePath):
+            if cpt.endswith(".index"):
+                cptN = int(cpt.replace(".index", "").split("-")[1])
+                if cptN > best:
+                    best = cptN
+                    bestC = cpt
+
+        assert(bestC is not None)
+        filePath += "/" + bestC
+        print("Using", filePath)
+        return filePath

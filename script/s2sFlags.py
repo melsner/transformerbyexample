@@ -44,6 +44,8 @@ def get_arguments():
     parser.add_argument("--n_exemplars", type=str, default="5")
     parser.add_argument("--limit_train", type=int, default=None)
     parser.add_argument("--edit_class", type=str, default=None)
+    parser.add_argument("--exemplar_nn", type=str, default=None)
+    parser.add_argument("--upsample_classifier", action="store_true")
 
     ################################################################################
     ## COMPONENT SEQ 2 SEQ MODEL PARAMETERS

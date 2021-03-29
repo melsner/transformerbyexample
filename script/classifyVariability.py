@@ -1,6 +1,6 @@
 from __future__ import division, print_function
 import sys
-from collections import defaultdict
+from collections import defaultdict, Counter
 import os
 import re
 import numpy as np
@@ -21,6 +21,34 @@ from s2sFlags import *
 import tensorflow as tf
 import tensorflow.keras as tkeras
 
+def upsample(insts, rate=.3):
+    langCounts = Counter()
+    for inst in insts:
+        for (src, targ, pred, correct) in inst:
+            lang = re.search("TRG_LANG_([a-z]*)", src).group(1)
+            langCounts[lang] += 1
+
+    largest = langCounts.most_common(1)
+    print(largest)
+    largest = largest[0][1] #count of the item
+
+    multipliers = {}
+    for lang, count in langCounts.items():
+        mult = np.round((rate * largest) / count)
+        mult = np.clip(mult, 1, 4)
+        mult = int(mult)
+        print("Multiplier for language", lang, "is", mult)
+        multipliers[lang] = mult
+    
+    res = []
+    for inst in insts:
+        (src, targ, pred, correct) = inst[0]
+        lang = re.search("TRG_LANG_([a-z]*)", src).group(1)
+        for ii in range(multipliers[lang]):
+            res.append(inst)
+
+    return res
+
 def writeInstances(insts, fn):
     base = 0
     total = 0
@@ -37,8 +65,11 @@ def writeInstances(insts, fn):
                     sign = "F"
                 fh.write("%s\t%s\t%s\n" % (content, sign, ";".join(features)))
 
-    maj = max(base / total, (total - base) / total)
-    print("Maj:", base, "/", total, maj)
+    if total > 0:
+        maj = max(base / total, (total - base) / total)
+        print("Maj:", base, "/", total, maj)
+    else:
+        print("No reason to bother doing this")
 
 def readPreds(fh):
     correct = True
@@ -106,6 +137,28 @@ def runModel(flags):
   #print("Transformer layers", tcls.transformer.layers)
   #tcls.transformer.load_weights(flags.work_dir + "/classifier-model.h5")
 
+def buildAndLoadModel(flags, cpName):
+  hparams, flags = seq2seq_runner.handle_preparation_flags(flags)
+
+  # Prepare data.
+  all_data = seq2seq_runner.prepare_data(flags, hparams)
+  trg_language_index = all_data.trg_language_index
+  trg_feature_index = all_data.trg_feature_index
+  trg_max_len_seq = all_data.trg_max_len_seq
+  trg_max_len_ft = all_data.trg_max_len_ft
+  split_sizes = all_data.split_sizes
+
+  model = model_lib.Model(hparams, all_data, flags)
+  transEnc = model.transformer.encoder
+
+  tcls = TModel(hparams, all_data, flags, transEnc)
+  print("Built model")
+  hparams.max_num_epochs = 1
+  tcls.train(fake=True)
+  manual = cpName.replace("ckpt-", "manual_save").replace(".index", ".h5")
+  tcls.transformer.load_weights(manual)
+  return tcls
+
 def buildModel(flags):
   hparams, flags = seq2seq_runner.handle_preparation_flags(flags)
 
@@ -123,13 +176,12 @@ def buildModel(flags):
   model.transformer.load_weights(cpName)
 
   transEnc = model.transformer.encoder
-  dtrain = all_data.dataset_train
-  tcls = TModel(hparams, all_data, flags, transEnc, dtrain)
+  tcls = TModel(hparams, all_data, flags, transEnc)
   print("Built model")
   return tcls
 
 class TModel(model_lib.Model):
-    def __init__(self, hparams, all_data, flags, enc, dtrain):
+    def __init__(self, hparams, all_data, flags, enc):
         super(TModel, self).__init__(hparams, all_data, flags, shell=True)
         self.transformer = TransformerCls(enc)
         self.loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False)
@@ -142,7 +194,9 @@ class TModel(model_lib.Model):
 
 
     def train(self, fake=False):
-        print("Running", self.hparams.max_num_epochs, "of classifier training")
+        if not fake:
+            print("Running", self.hparams.max_num_epochs, "of classifier training")
+
         best_dev_acc = -1.0
         for epoch in range(self.hparams.max_num_epochs):
 
@@ -173,6 +227,13 @@ class TModel(model_lib.Model):
                     'Saving checkpoint for epoch {} at {}\n'.format(
                         epoch + 1, self.best_checkpoint_path))
                 best_dev_acc = dev_acc
+
+    def scores(self, instances):
+        reprs = self.prepare_for_forced_validation(instances, self.src_language_index)
+        enc_padding_mask = model_lib.create_padding_mask(reprs)
+        prs = self.transformer.call(reprs, False, enc_padding_mask)
+        prs = prs.numpy()[:, 0]
+        return prs
 
     def validate(self):
         val_srcs, val_trgs = self.dev_srcs, self.dev_trgs
@@ -278,23 +339,28 @@ if __name__ == "__main__":
         print("Using", args.load_other)
 
     variant = 0
-    workdir = os.path.dirname(args.load_other) + "/../../classify-variable%d" % variant
-    while os.path.exists(workdir):
-        variant += 1
-        workdir = os.path.dirname(args.load_other) + "/../../classify-variable%d" % variant
+    workdir = args.run
 
     os.makedirs(workdir, exist_ok=True)
 
+    scratchDir = workdir + "/model%d" % variant
+    while os.path.exists(scratchDir):
+        variant += 1
+        scratchDir = os.path.basename(args.run) + "/model%d" % variant
+
     np.random.shuffle(variableCases)
-    nDev = 200
+    nDev = 400
     dev = variableCases[:nDev]
     train = variableCases[nDev:]
+    print("Splitting", len(variableCases), "instances into", len(dev), "dev and", len(train), "train")
     writeInstances(dev, workdir + "/dev.txt")
+    if args.upsample_classifier:
+        train = upsample(train)
+        print("Upsampled to", len(train))
+
     writeInstances(train, workdir + "/train.txt")
 
-    os.system("rm -rf %s/model" % workdir)
-
-    flags = S2SFlags(args, workdir + "/model")
+    flags = S2SFlags(args, scratchDir)
     flags.train = workdir + "/train.txt"
     flags.dev = workdir + "/dev.txt"
     flags.checkpoint_to_restore = os.path.abspath(args.load_other)

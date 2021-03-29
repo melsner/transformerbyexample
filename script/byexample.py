@@ -16,7 +16,8 @@ from Seq2seq import seq2seq_runner, dataloader
 from Seq2seq import model as model_lib
 
 from s2sFlags import *
-from utils import edist_alt, edist, cacheWipe, get_size
+from utils import edist_alt, edist, cacheWipe, get_size, findLatestModel
+import classifyVariability
 
 def getEditClass(lemma, form):
     cost, (alt1, alt2) = edist_alt(lemma, form)
@@ -148,7 +149,38 @@ class Data:
                         print("\t", self.revEC(feats, lang, sj), sims[cii, sj])
                     printed += 1
 
-    def getExemplar(self, feats, lang, avoid=None, similar=None, similarityRank="exact"):
+    def getNNExemplars(self, srcLemma, feats, lang, fam, nn, avoid=None, nSamples=100, nExemplars=5, verbose=False):
+        available = self.byFeature[frozenset(feats), lang]
+        available = [(lemma, form, feats, lang) for (lemma, form, feats, lang) in available if lemma != avoid]
+
+        if len(available) == 0:
+            raise ValueError("No exemplar (nn mode): lang %s feats %s" % (lang, str(feats)))
+
+        nSamples = min(nSamples, len(available))
+        choices = np.random.choice(len(available), size=nSamples, replace=False)
+        insts = []
+        for ind in choices:
+            exLemma, exForm, exFeats, exLang = available[ind]
+            src = "%s:%s>%s" % (srcLemma, exLemma, exForm)
+            inst = " ".join(list(src) + ["TRG_LANG_%s" % lang, "TRG_FAM_%s" % fam])
+            insts.append((inst, available[ind]))
+
+        scores = nn.scores([inst for (inst, ex) in insts])
+        if verbose:
+            for ((inst, ex), sc) in zip(insts, scores):
+                print("\t", inst, "->", sc)
+
+        scored = sorted(zip(insts, scores), key=lambda xx: xx[1], reverse=True)
+        result = scored[:nExemplars]
+
+        if verbose:
+            for (inst, ex), sc in result:
+                print("\t*", inst, "*->*", sc)
+
+        result = [ex for ((inst, ex), sc) in result]
+        return result
+
+    def getExemplar(self, feats, lang, avoid=None, similar=None, similarityRank=False):
         assert(similarityRank in ["exact", "approximate", None])
         available = []
         if similar is not None and similarityRank == "exact":
@@ -219,8 +251,9 @@ class Data:
         else:
             return int(limit // langSize)
 
-    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=False):
+    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=False, exemplarNN=None):
         assert(not (dev and allowSelfExemplar))
+        assert(not (useSimilarExemplar and exemplarNN))
         #will allow this for some dev runs and see what happens, but be careful not to use for eval scores
         #assert(not (dev and useSimilarExemplar))
         if dev:
@@ -248,6 +281,33 @@ class Data:
                         src = "%s:%s>%s" % (lemma, exLemma, exForm)
                         targ = form
                         ofh.write("%s\t%s\tLANG_%s;FAM_%s\n" % (src, targ, lang, fam))
+                elif exemplarNN is not None:
+                    #ugh so much code duplication
+                    if self.nExemplars == "dynamic":
+                        if not dev:
+                            nExemplars = self.langExemplars(limit, langSize[lang])
+                        else:
+                            nExemplars = 5
+                    else:
+                        nExemplars = self.nExemplars
+
+                    try:
+                        if allowSelfExemplar:
+                            nnExes = self.getNNExemplars(lemma, feats, lang, fam, exemplarNN, nExemplars=nExemplars)
+                        else:
+                            nnExes = self.getNNExemplars(lemma, feats, lang, fam, exemplarNN, avoid=lemma, nExemplars=nExemplars)
+                    except ValueError as err:
+                        print("Singleton feature vector", feats, lemma)
+                        print("Detailed error", err)
+                        continue
+
+                    for ex in nnExes:
+                        exLemma, exForm, exFeats, exLang = ex
+
+                        src = "%s:%s>%s" % (lemma, exLemma, exForm)
+                        targ = form
+                        ofh.write("%s\t%s\tLANG_%s;FAM_%s\n" % (src, targ, lang, fam))
+                        instPerLang[lang] += 1
 
                 else:
                     editClass = None
@@ -274,8 +334,7 @@ class Data:
                         instPerLang[lang] += 1
                         try:
                             if allowSelfExemplar:
-                                ex = self.getExemplar(feats, lang, similar=editClass,
-                                                      similarityRank=simRankMode)
+                                ex = self.getExemplar(feats, lang, similar=editClass, similarityRank=simRankMode)
                             else:
                                 ex = self.getExemplar(feats, lang, avoid=lemma, similar=editClass, 
                                                       similarityRank=simRankMode)
@@ -315,6 +374,14 @@ def loadVocab(vocab):
 
     return srcVoc, targVoc
 
+def headFile(infile, outfile, nlines):
+    with open(infile) as ifh:
+        with open(outfile, "w") as ofh:
+            for ind, line in enumerate(ifh):
+                ofh.write(line)
+                if ind > nlines:
+                    break
+
 if __name__ == "__main__":
     #load the data
     print("Script start")
@@ -324,6 +391,29 @@ if __name__ == "__main__":
     dfile = args.data
 
     data = None
+
+    exemplarNN = None
+    if args.exemplar_nn is not None:
+        nnFilePath = findLatestModel(args.exemplar_nn)
+        variant = 0
+        exScratch = os.path.abspath(args.exemplar_nn + "../../scratch%d" % variant)
+        while os.path.exists(exScratch):
+            variant += 1
+            exScratch = os.path.abspath(args.exemplar_nn + "../../scratch%d" % variant)
+        print("Creating exemplar nn scratch dir", exScratch)
+        os.makedirs(exScratch)
+        flags = S2SFlags(args, exScratch + "/model")
+        exTrain = os.path.abspath(args.exemplar_nn + "../../train.txt")
+        exDev = os.path.abspath(args.exemplar_nn + "../../dev.txt")
+        print("Setting train and dev to", exTrain, exDev)
+        headFile(exTrain, exScratch + "/train.txt", 100)
+        headFile(exDev, exScratch + "/dev.txt", 100)
+        flags.train = exScratch + "/train.txt"
+        flags.dev = exScratch + "/dev.txt"
+        flags.checkpoint_to_restore = findLatestModel(args.load_other)
+        exemplarNN = classifyVariability.buildAndLoadModel(flags, nnFilePath)
+
+        print("---Successful load of exemplar nn---")
 
     trainExists = os.path.exists("%s/train.txt" % run)
 
@@ -385,7 +475,7 @@ if __name__ == "__main__":
     if args.generate_file:
         os.makedirs(run, exist_ok=True)
         data.writeInstances("%s/dev.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
-                            useSimilarExemplar=args.edit_class)
+                            useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN)
         sys.exit(0)
 
     if not trainExists:
@@ -399,26 +489,11 @@ if __name__ == "__main__":
             data.junkInstances("%s/dev.txt" % run, dev=True)
         else:
             data.writeInstances("%s/train.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
-                                useSimilarExemplar=args.edit_class)
-            data.writeInstances("%s/dev.txt" % run, dev=True, useSimilarExemplar=args.edit_class)
+                                useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN)
+            data.writeInstances("%s/dev.txt" % run, dev=True, useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN)
 
     if args.load_other:
-
-        if not args.load_other.endswith(".index"):
-            print("Searching for latest checkpoint")
-            best = 0
-            bestC = None
-
-            for cpt in os.listdir(args.load_other):
-                if cpt.endswith(".index"):
-                    cptN = int(cpt.replace(".index", "").split("-")[1])
-                    if cptN > best:
-                        best = cptN
-                        bestC = cpt
-
-            assert(bestC is not None)
-            args.load_other += "/" + bestC
-            print("Using", args.load_other)
+        args.load_other = findLatestModel(args.load_other)
 
     print("Parsing flags")
     variant = 0
