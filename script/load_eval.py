@@ -88,8 +88,11 @@ if __name__ == "__main__":
     #create a scratch dev file for loading purposes
     with open(dev) as fh:
         with open(run + "/cdev.txt", "w") as ofh:
-            for ind in range(50):
-                ofh.write(next(fh))
+            try:
+                for ind in range(50):
+                    ofh.write(next(fh))
+            except StopIteration:
+                pass
 
     flags.dev = run + "/cdev.txt"
 
@@ -129,7 +132,7 @@ if __name__ == "__main__":
                     src = " ".join(list(src))
                     feats = feats.split(";")
                     feats = ["TRG_%s" % fi for fi in feats]
-                    src += " ".join(feats)
+                    src += " " + " ".join(feats)
 
                     targ = targ.replace(" ", "_")
                     targ = " ".join(list(targ))

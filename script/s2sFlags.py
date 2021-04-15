@@ -47,6 +47,9 @@ def get_arguments():
     parser.add_argument("--exemplar_nn", type=str, default=None)
     parser.add_argument("--upsample_classifier", action="store_true")
 
+    parser.add_argument("--synthetic_dev_type", type=str, default=None)
+    parser.add_argument("--synthetic_dev_alphabet", type=str, default="common")
+
     ################################################################################
     ## COMPONENT SEQ 2 SEQ MODEL PARAMETERS
     ################################################################################

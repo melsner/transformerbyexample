@@ -19,6 +19,34 @@ from s2sFlags import *
 from utils import edist_alt, edist, cacheWipe, get_size, findLatestModel
 import classifyVariability
 
+def createDataFromDir(dpath, args):
+    allData = []
+    for root, dirs, files in os.walk(dpath):
+        for fi in files:
+            lang = fi
+            valid = False
+            family = None
+
+            if lang.endswith(".dev") or lang.endswith(".trn"):
+                #set lang fam for 2020
+                family = os.path.basename(root)
+
+            for code in ["-train-low", "-train-high", ".trn"]:
+                if code in lang:
+                    lang = lang.replace(code, "")
+                    valid = True
+
+            if not valid:
+                continue
+                    
+            print("Reading", fi, "for", lang, "in", family)
+
+            rawData = np.loadtxt(root + "/" + fi, dtype=str, delimiter="\t")
+            allData.append((rawData, lang, family))
+                
+    data = Data(allData, lang=None, family=None, nExemplars=args.n_exemplars, useEditClass=args.edit_class)
+    return data
+
 def getEditClass(lemma, form):
     cost, (alt1, alt2) = edist_alt(lemma, form)
     #print("Aligned", lemma, form, cost, alt1, alt2)
@@ -202,6 +230,7 @@ class Data:
                     available = [(lemma, form, feats, lang) for (lemma, form, feats, lang) in available if lemma != avoid]
                     if available:
                         break
+
         elif similar is not None and similarityRank == "approximate":
             #print("Getting approx exe", feats, lang, similar)
             relevantClasses = self.similarClasses[frozenset(feats), lang]
@@ -237,7 +266,10 @@ class Data:
             available = [(lemma, form, feats, lang) for (lemma, form, feats, lang) in available if lemma != avoid]
 
         if len(available) == 0:
-            strSim = self.revEC(feats, lang, similar)
+            if hasattr(self, "revECTab"):
+                strSim = self.revEC(feats, lang, similar)
+            else:
+                strSim = "None"
             raise ValueError("No exemplar: lang %s feats %s similar %s mode %s" % (lang, str(feats), strSim, similarityRank))
 
         ri = np.random.choice(len(available))
@@ -420,37 +452,14 @@ if __name__ == "__main__":
     if not trainExists:
 
         if os.path.isdir(dfile):
-            allData = []
-            for root, dirs, files in os.walk(dfile):
-                for fi in files:
-                    lang = fi
-                    valid = False
-                    family = None
-
-                    if lang.endswith(".dev") or lang.endswith(".trn"):
-                        #set lang fam for 2020
-                        family = os.path.basename(root)
-
-                    for code in ["-train-low", "-train-high", ".trn"]:
-                        if code in lang:
-                            lang = lang.replace(code, "")
-                            valid = True
-
-                    if not valid:
-                        continue
-                    
-                    print("Reading", fi, "for", lang, "in", family)
-
-                    rawData = np.loadtxt(root + "/" + fi, dtype=str, delimiter="\t")
-                    allData.append((rawData, lang, family))
-                
-            data = Data(allData, lang=None, family=None, nExemplars=args.n_exemplars, useEditClass=args.edit_class)
+            data = createDataFromPath(dfile, args)
         else:
             lang = os.path.basename(dfile)
             family = None
             if lang.endswith(".dev") or lang.endswith(".trn"):
                 #set lang fam for 2020
                 family = os.path.basename(os.path.dirname(dfile))
+                family = family.lower()
 
             for code in ["-dev", "-test", "-train-low", "-train-high", ".trn", ".dev"]:
                 lang = lang.replace(code, "")
@@ -464,9 +473,11 @@ if __name__ == "__main__":
             data.splitDev(instances=2000)
         else:
             lang = os.path.basename(args.devset)
-            family = os.path.basename(os.path.dirname(args.devset))
-            for code in ["-dev", "-test", "-train-low", "-train-high", ".trn", ".dev"]:
+            devFamily = os.path.basename(os.path.dirname(args.devset))
+            for code in ["-dev", "-test", "-train-low", "-train-high", ".trn", ".dev", ".tst"]:
                 lang = lang.replace(code, "")
+            if devFamily != "GOLD-TEST":
+                family = devFamily
             print("Identified devset as", lang, family)
 
             rawDev = np.loadtxt(args.devset, dtype=str, delimiter="\t")

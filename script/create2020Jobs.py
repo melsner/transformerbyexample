@@ -12,7 +12,7 @@ if six.PY2:
 else:
     import pickle as pkl
 
-def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fine"):
+def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fine", test=False):
     langName = os.path.basename(train).replace(".trn", "")
     if jobName is None:
         jobName = langName
@@ -21,6 +21,9 @@ def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fi
 
     print("writing", fName)
     dev = train.replace(".trn", ".dev")
+    if test:
+        dev = train.replace(".trn", ".tst")
+        dev = os.path.dirname(train) + "/../../GOLD-TEST/" + os.path.basename(dev)
     parent = dParent + "/" + "/model0/checkpoints/"
     #exnn = run + "/fine/" + langName + "-classify-variable/model0/checkpoints/"
     famName = os.path.basename(os.path.abspath(dParent))
@@ -48,6 +51,8 @@ if __name__ == "__main__":
     genericCreateDataset = "generic-createdataset.sh"
     genericDerivedSelected = "generic-derived-selected.sh"
     genericFamilyNN = "generic-family-nn.sh"
+    genericTest = "generic-testmodel.sh"
+
     data = sys.argv[1]
     run = sys.argv[2]
 
@@ -101,4 +106,7 @@ if __name__ == "__main__":
         writeFile("%s/jobs/fine" % odir, df, genericCreateDataset, dParent="%s/fam/%s" % (odir, famName), run=run,
                   jobName="%s-create-dataset" % langName)
 
-        writeFile("%s/jobs/fine" % odir, df, genericDerivedSelected, dParent="%s/fam/%s-post-nn" % (odir, famName), run=run)
+        writeFile("%s/jobs/fine" % odir, df, genericDerived, dParent="%s/fam/%s" % (odir, famName), run=run)
+
+        writeFile("%s/jobs/fine" % odir, df, genericTest, dParent="%s/fine/%s" % (odir, langName), run=run, test=True,
+                  jobName="%s-test" % langName)

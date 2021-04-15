@@ -7,6 +7,7 @@ import argparse
 import random
 import math
 import six
+import unicodedata
 if six.PY2:
     import cPickle as pkl
 else:
@@ -98,6 +99,18 @@ def writeOfficial(paired, dev, ofh):
     print("Selector performance: %d/%d %.2g" % (varScore, varCases, selPerf))
     print("Score within coverage: %d/%d %.2g" % (adjScore, totalCovered, adjScore / totalCovered))
 
+def allowMatch(f1, f2):
+    if f1 == f2:
+        return True
+
+    nbsp = unicodedata.lookup("NO-BREAK SPACE")
+
+    for (c1, c2) in zip(f1, f2):
+        if c1 != c2 and c1 != nbsp and c2 == nbsp:
+            return False
+
+    return True
+
 if __name__ == "__main__":
     dev = sys.argv[1]
     prd = sys.argv[2]
@@ -114,7 +127,7 @@ if __name__ == "__main__":
         for src, targ, pred in readPreds(prdFh):
             #print("Looking for", targ, "vs", nextForm)
             try:
-                while targ != nextForm or len(paired[dInd]) == 5:
+                while not allowMatch(targ, nextForm) or len(paired[dInd]) == 5:
                     dInd, (nextLemma, nextForm, nextFeats) = next(dIter)
                     #print("\tcycle", nextForm)
             except StopIteration:
@@ -129,12 +142,17 @@ if __name__ == "__main__":
     variableItems = 0
     iScore = 0
     total = len(paired)
+    totalInsts = 0
+    correctInsts = 0
     for devItem, insts in paired.items():
         if len(insts) > 0:# == 5:
             coverage += 1
+            totalInsts += len(insts)
+            correctInsts += np.sum([int(correct) for (src, targ, pred, correct) in insts])
         else:
             #print(insts)
             #assert(len(insts) == 0)
+            totalInsts += 5
             continue #not applicable to scoring rules
 
         if np.all([correct is True for (src, targ, pred, correct) in insts]):
@@ -145,6 +163,7 @@ if __name__ == "__main__":
     print("Coverage: %d/%d = %.2g" % (coverage, total, coverage/total))
     print("Variable items: %d/%d = %.2g" % (variableItems, total, variableItems/total))
     print("Score: %d/%d = %.2g" % (iScore, total, iScore/total))
+    print("Score by instance: %d/%d = %.2g" % (correctInsts, totalInsts, correctInsts/totalInsts))
 
     ofName = os.path.dirname(prd) + "/predictions-std.txt"
     with open(ofName, "w") as ofh:
