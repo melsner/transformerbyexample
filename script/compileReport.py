@@ -11,7 +11,7 @@ def findResultFile(dd):
 if __name__ == "__main__":
     dataset = sys.argv[1]
     run = sys.argv[2]
-    if len(sys.argv) > 2:
+    if len(sys.argv) > 3:
         runType = sys.argv[3]
     else:
         runType = "*"

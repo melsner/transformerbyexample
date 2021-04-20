@@ -478,6 +478,7 @@ if __name__ == "__main__":
                 lang = lang.replace(code, "")
             if devFamily != "GOLD-TEST":
                 family = devFamily
+            family = family.lower()
             print("Identified devset as", lang, family)
 
             rawDev = np.loadtxt(args.devset, dtype=str, delimiter="\t")

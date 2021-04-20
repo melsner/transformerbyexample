@@ -106,7 +106,7 @@ def allowMatch(f1, f2):
     nbsp = unicodedata.lookup("NO-BREAK SPACE")
 
     for (c1, c2) in zip(f1, f2):
-        if c1 != c2 and c1 != nbsp and c2 == nbsp:
+        if c1 != c2 and c1 != nbsp and c2 != nbsp:
             return False
 
     return True
@@ -129,7 +129,7 @@ if __name__ == "__main__":
             try:
                 while not allowMatch(targ, nextForm) or len(paired[dInd]) == 5:
                     dInd, (nextLemma, nextForm, nextFeats) = next(dIter)
-                    #print("\tcycle", nextForm)
+                    #print("\tloaded next from gold file", nextForm)
             except StopIteration:
                 print("Last item not detected; probably fine, check dev file")
 

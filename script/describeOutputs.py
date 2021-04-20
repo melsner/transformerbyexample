@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     with open(fpath + ".csv", "w") as ofh:
         writer = csv.DictWriter(ofh, ["lemma", "affix", "exemplar", 
-                                      "targ", "pred", "rule", "lang", "fam", "correct", "lemmaCV", "affixCV"])
+                                      "targ", "pred", "rule", "appliedRule", "lang", "fam", "correct", "lemmaCV", "affixCV"])
 
         writer.writeheader()
 
@@ -34,6 +34,7 @@ if __name__ == "__main__":
             lemma, ex, exForm = re.match("(.*):(.*)>(.*)", content).groups()
             #print(features, lemma, ex, exForm, targ, pred, correct)
             rule = str(getEditClass(pred, targ))
+            appliedRule = str(getEditClass(lemma, pred))
             #print(rule)
             affix = targ.replace(lemma, "")
 
@@ -48,6 +49,6 @@ if __name__ == "__main__":
                     fam = fi.replace("FAM_", "")
 
             writer.writerow(
-                {"lemma" : lemma, "affix" : affix, "exemplar" : ex, "targ" : targ, "pred" : pred, "rule" : rule, "lang" : lang,
+                {"lemma" : lemma, "affix" : affix, "exemplar" : ex, "targ" : targ, "pred" : pred, "rule" : rule, "lang" : lang, "appliedRule" : appliedRule,
                  "fam" : fam, "correct" : correct, "lemmaCV" : lemmaCV, "affixCV" : affixCV } )
 
