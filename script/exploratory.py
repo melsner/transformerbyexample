@@ -1,7 +1,6 @@
 import sys
 import pandas as pd
 import re
-from tabulate import tabulate
 
 def hasReduplicant(row):
     targ = row.targ
@@ -127,6 +126,16 @@ if __name__ == "__main__":
     df["geminated"] = df.apply(hasGeminate, axis=1)
     df["reduplicated"] = df.apply(hasReduplicant, axis=1)
 
+    df["exCV1"] = df.exemplar.str[0:2]
+    df["prefix.for.redup"] = df.exCV1 + df.lemma
+    df["infix.for.redup"] = df.lemma.str[0:2] + df.exCV1 + df.lemma.str[2:]
+
+    df["redup.out.type"] = "other"
+    df.loc[df.pred == df.targ, "redup.out.type"] = "reduplicated"
+    df.loc[df.pred == df["prefix.for.redup"], "redup.out.type"] = "prefixed"
+    df.loc[df.pred == df["infix.for.redup"], "redup.out.type"] = "infixed"
+    df.loc[df.pred == df["lemma"], "redup.out.type"] = "unaltered"
+
     if suffix:
         df["interface"] = df.lemmaCV.str[-1] + df.affixCV.str[0]
         df["lemma/affix"] = df.lemmaCV + "/" + df.affixCV
@@ -189,9 +198,18 @@ if __name__ == "__main__":
     print("----------------")
     print()
 
-    print("Reduplicated?")
-    grouped = df.groupby(["setting", feature]).mean()
-    pivot = pd.pivot_table(grouped, values="reduplicated", columns=feature, index="setting")
-    print(pivot)
+    print("Reduplication status")
 
-    print(df.groupby(["setting"]).mean()["reduplicated"])
+    dfilt = df[df.affix != df.exCV1]
+
+    ds1 = dfilt.loc[(dfilt.setting == "germanic/deu") & (dfilt["redup.out.type"] == "prefixed")]
+    print(ds1)
+
+    grouped = dfilt.groupby(["setting", "redup.out.type"]).count()
+    pivot = pd.pivot_table(grouped, values="correct", columns="redup.out.type", index="setting").fillna(0)
+    print(100 * pivot.div(pivot.sum(axis=1), axis=0))
+
+
+    print()
+    print("----------------")
+    print()
