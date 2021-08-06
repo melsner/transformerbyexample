@@ -1,8 +1,8 @@
 # python3
 """Transformer model for morphological inflection."""
 
-
 import enum
+import os
 import sys
 import numpy as np
 import tensorflow as tf
@@ -115,11 +115,23 @@ class Model(object):
             sys.stderr.write(
               'Restoring model from checkpoint: {}\n'.format(
                   self.hparams.checkpoint_to_restore))
+            #print("Native tf restore:")
             #self.checkpoint.restore(self.hparams.checkpoint_to_restore)
             cpName = self.hparams.checkpoint_to_restore.replace("ckpt-", "manual_save").replace(".index", ".h5")
             i0 = next(iter(self.dev_srcs))
             t0 = next(iter(self.dev_trgs))
             self.evaluate([i0])
+            #https://stackoverflow.com/questions/49503748/save-and-load-model-optimizer-state/49504376
+            gradVars = self.transformer.trainable_weights
+            zeroGrads = [tf.zeros_like(xx) for xx in gradVars]
+            self.optimizer.apply_gradients(zip(zeroGrads, gradVars))
+            optName = self.hparams.checkpoint_to_restore.replace("ckpt-", "manual_optimizer").replace(".index", ".npy")
+            if os.path.exists(optName):
+                print("Manual load of optimizer from", optName)
+                optWeights = np.load(optName, allow_pickle=True)
+                self.optimizer.set_weights(optWeights)
+            else:
+                print("No optimizer found:", optName)
             print("Manual load of weights from", cpName)
             self.transformer.load_weights(cpName)
             #self.checkpoint.restore(self.hparams.checkpoint_to_restore)
@@ -181,6 +193,8 @@ class Model(object):
             if dev_acc > best_dev_acc:
                 self.best_checkpoint_path = self.ckpt_manager.save()
                 self.transformer.save_weights(self.hparams.checkpoint_dir + "/manual_save%d.h5" % self.checkpoint.save_counter)
+                np.save(self.hparams.checkpoint_dir + "/manual_optimizer%d" % self.checkpoint.save_counter,
+                        self.optimizer.get_weights())
                 sys.stderr.write(
                     'Saving checkpoint for epoch {} at {}\n'.format(
                         epoch + 1, self.best_checkpoint_path))
