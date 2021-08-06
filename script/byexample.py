@@ -18,8 +18,10 @@ from Seq2seq import model as model_lib
 from s2sFlags import *
 from utils import edist_alt, edist, cacheWipe, get_size, findLatestModel
 import classifyVariability
+import editGraphs
+import ruleFeatures
 
-def createDataFromDir(dpath, args):
+def createDataFromPath(dpath, args):
     allData = []
     for root, dirs, files in os.walk(dpath):
         for fi in files:
@@ -62,7 +64,7 @@ def getEditClass(lemma, form):
             ap2 += 1
 
         if ap1 < len(alt1) and ap2 < len(alt2) and alt1[ap1][1] == True and alt2[ap2][1] == True:
-            alt.append("-")
+            alt.append("*")
 
         while ap1 < len(alt1) and ap2 < len(alt2) and alt1[ap1][1] == True and alt2[ap2][1] == True:
             ap1 += 1
@@ -79,10 +81,13 @@ class Data:
             self.internEC = defaultdict(dict)
             self.revECTab = defaultdict(dict)
         if self.lang is not None:
+            self.langFamilies = { self.lang : family }
             self.instances = [(lemma, form, set(feats.split(";")), lang, family) for (lemma, form, feats) in instances]
         else:
+            self.langFamilies = {}
             self.instances = []
             for (raw, lang, fam) in instances:
+                self.langFamilies[lang] = fam
                 local = [(lemma, form, set(feats.split(";")), lang, fam) for (lemma, form, feats) in raw]
                 self.instances += local
         self.byFeature = defaultdict(list)
@@ -190,7 +195,8 @@ class Data:
         for ind in choices:
             exLemma, exForm, exFeats, exLang = available[ind]
             src = "%s:%s>%s" % (srcLemma, exLemma, exForm)
-            inst = " ".join(list(src) + ["TRG_LANG_%s" % lang, "TRG_FAM_%s" % fam])
+            features = ruleFeatures.featureFn(lang, fam, feats, None, None, False)
+            inst = " ".join(list(src) + features)
             insts.append((inst, available[ind]))
 
         scores = nn.scores([inst for (inst, ex) in insts])
@@ -277,13 +283,32 @@ class Data:
         #print("Result is", ex)
         return ex
 
+    def getGraphExemplar(self, feats, lang, similar, avoid=None):
+        dists = self.graphDists[frozenset(feats), lang]
+        strSim = self.revEC(feats, lang, similar)
+        if strSim in dists:
+            cellDist = dists[strSim]
+            #print("for", feats, lang, "found", cellDist)
+            prs = list(cellDist.items())
+            prsOnly = [xx[1] for xx in prs]
+            sample = np.random.choice(range(len(prsOnly)), p=prsOnly)
+            selected = prs[sample][0]
+            #print("chose", selected)
+            #if it's not in the table, it can't be used, so just fall back on the original class
+            selected = self.internEC[frozenset(feats), lang].get(selected, similar)
+
+        else:
+            selected = similar
+
+        return self.getExemplar(feats, lang, similar=selected, avoid=avoid, similarityRank="exact")
+
     def langExemplars(self, limit, langSize):
         if langSize > limit:
             return 1
         else:
             return int(limit // langSize)
 
-    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=False, exemplarNN=None):
+    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=False, exemplarNN=None, extraFeatures=False):
         assert(not (dev and allowSelfExemplar))
         assert(not (useSimilarExemplar and exemplarNN))
         #will allow this for some dev runs and see what happens, but be careful not to use for eval scores
@@ -312,7 +337,12 @@ class Data:
                     for exLemma, exForm, exFeats, exLang in available:
                         src = "%s:%s>%s" % (lemma, exLemma, exForm)
                         targ = form
-                        ofh.write("%s\t%s\tLANG_%s;FAM_%s\n" % (src, targ, lang, fam))
+                        features = ruleFeatures.featureFn(lang, fam, feats, 
+                                                          getEditClass(lemma, form), 
+                                                          getEditClass(exLemma, exForm),
+                                                          extraFeatures)
+                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                        ofh.write(ruleFeatures.classificationInst(src, targ, features))
                 elif exemplarNN is not None:
                     #ugh so much code duplication
                     if self.nExemplars == "dynamic":
@@ -338,9 +368,58 @@ class Data:
 
                         src = "%s:%s>%s" % (lemma, exLemma, exForm)
                         targ = form
-                        ofh.write("%s\t%s\tLANG_%s;FAM_%s\n" % (src, targ, lang, fam))
+                        features = ruleFeatures.featureFn(lang, fam, feats, 
+                                                          getEditClass(lemma, form), 
+                                                          getEditClass(exLemma, exForm),
+                                                          extraFeatures)
+                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                        ofh.write(ruleFeatures.classificationInst(src, targ, features))
                         instPerLang[lang] += 1
 
+                elif useSimilarExemplar == "graph":
+                    #ugh so much code duplication
+                    if self.nExemplars == "dynamic":
+                        if not dev:
+                            nExemplars = self.langExemplars(limit, langSize[lang])
+                        else:
+                            nExemplars = 5
+                    else:
+                        nExemplars = self.nExemplars
+
+                    editClass = self.getEditClass(feats, lang, lemma, form)
+
+                    ###xxx
+                    dists = self.graphDists[frozenset(feats), lang]
+                    strSim = self.revEC(feats, lang, editClass)
+                    if strSim not in dists:
+                        continue
+                    cellDist = dists[strSim]
+                    if len(cellDist) == 1:
+                        continue
+
+                    for exN in range(nExemplars):
+                        instPerLang[lang] += 1
+                        try:
+                            if allowSelfExemplar:
+                                ex = self.getGraphExemplar(feats, lang, similar=editClass)
+                            else:
+                                ex = self.getGraphExemplar(feats, lang, avoid=lemma, similar=editClass)
+                        except ValueError as err:
+                            print("Singleton feature vector", feats, lemma)
+                            print("Detailed error", err)
+                            continue
+                            #raise
+
+                        exLemma, exForm, exFeats, exLang = ex
+
+                        src = "%s:%s>%s" % (lemma, exLemma, exForm)
+                        targ = form
+                        features = ruleFeatures.featureFn(lang, fam, feats, 
+                                                          getEditClass(lemma, form), 
+                                                          getEditClass(exLemma, exForm),
+                                                          extraFeatures)
+                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                        ofh.write(ruleFeatures.classificationInst(src, targ, features))
                 else:
                     editClass = None
                     if useSimilarExemplar:
@@ -380,7 +459,12 @@ class Data:
 
                         src = "%s:%s>%s" % (lemma, exLemma, exForm)
                         targ = form
-                        ofh.write("%s\t%s\tLANG_%s;FAM_%s\n" % (src, targ, lang, fam))
+                        features = ruleFeatures.featureFn(lang, fam, feats, 
+                                                          getEditClass(lemma, form), 
+                                                          getEditClass(exLemma, exForm),
+                                                          extraFeatures)
+                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                        ofh.write(ruleFeatures.classificationInst(src, targ, features))
 
 def shuffleData(data):
     inds = np.arange(data.shape[0])
@@ -484,10 +568,16 @@ if __name__ == "__main__":
             rawDev = np.loadtxt(args.devset, dtype=str, delimiter="\t")
             data.devSet = [(lemma, form, set(feats.split(";")), lang, family) for (lemma, form, feats) in rawDev]
 
+    assert(args.edit_class != "graph" or args.edit_graph is not None)
+    if args.edit_class == "graph":
+        graphDists = editGraphs.loadGraphs(data, args.edit_graph)
+        data.graphDists = graphDists
+
     if args.generate_file:
         os.makedirs(run, exist_ok=True)
         data.writeInstances("%s/dev.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
-                            useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN)
+                            useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN, 
+                            extraFeatures=args.extra_features)
         sys.exit(0)
 
     if not trainExists:
@@ -501,8 +591,9 @@ if __name__ == "__main__":
             data.junkInstances("%s/dev.txt" % run, dev=True)
         else:
             data.writeInstances("%s/train.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
-                                useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN)
-            data.writeInstances("%s/dev.txt" % run, dev=True, useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN)
+                                useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN,
+                                extraFeatures=args.extra_features)
+            data.writeInstances("%s/dev.txt" % run, dev=True, useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN, extraFeatures=args.extra_features)
 
     if args.load_other:
         args.load_other = findLatestModel(args.load_other)

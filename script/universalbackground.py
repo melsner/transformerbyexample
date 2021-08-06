@@ -20,11 +20,16 @@ from s2sFlags import *
 
 from byexample import *
 
-def writeInstances(ofn, instances):
+def writeInstances(ofn, instances, extraFeatures=False):
     with open(ofn, "w") as ofh:
         for (lemma, targ, exLemma, exForm, code) in instances:
             src = "%s:%s>%s" % (lemma, exLemma, exForm)
-            ofh.write("%s\t%s\tLANG_%s;FAM_%s\n" % (src, targ, code[0], code[1]))
+            features = ruleFeatures.featureFn(code[0], code[1],
+                                              [],
+                                              getEditClass(lemma, targ),
+                                              getEditClass(exLemma, exForm),
+                                              extraFeatures)
+            ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
 
 def fakeInflection(cset, lemma, ex):
     aLengthD = [ (1, .2), (2, .2), (3, .2), (4, .2), (5, .2) ]
@@ -81,6 +86,7 @@ def discoverVocab(dpath):
                     if lang.endswith(".dev") or lang.endswith(".trn"):
                         #set lang fam for 2020
                         family = os.path.basename(root)
+                        family = family.lower()
 
                     lang = lang.replace(code, "")
                     families[lang] = family
@@ -120,7 +126,7 @@ def discoverVocab(dpath):
 
     return charSets, families, allFeats, maxLemma, maxForm, lemmaLengths, formLengths
 
-def syntheticInstances(num, charSets, families, strLengthD):
+def syntheticInstances(num, charSets, families, feats, strLengthD, extraFeatures=False):
     res = []
 
     #generate a "word" containing each valid char, in blocks of 10
@@ -132,6 +138,25 @@ def syntheticInstances(num, charSets, families, strLengthD):
             exLemma = lemma
             exForm = lemma
             res.append((lemma, targ, exLemma, exForm, (lang, families[lang])))
+
+    #generate a "word" containing each valid feature, in blocks of 10
+    if extraFeatures:
+        allFeats = list(feats)
+
+        allFeats += ["TRG_RULE_PREF", "TRG_RULE_SUFF", "TRG_RULE_STEM", "TRG_RULE_SUPPLETIVE"]
+        for tp in ["PREF", "SUFF", "IN"]:
+            for mod in ["_RM", ""]:
+                for op in ["TRG_CMP_%s_COPY",
+                           "TRG_CMP_%s_REPLACE",
+                           "TRG_CMP_%s_CONTACT",
+                           "TRG_CMP_%s_DISTANT"]:
+                    allFeats += op % (tp + mod)
+
+        for ind in np.arange(0, len(allFeats), 10):
+            lemma = "a"
+            targ = "a"
+            langCode = lang + ";" + ";".join(["TRG_CELL_%s" % xx for xx in allFeats[ind: ind + 10]])
+            res.append((lemma, targ, lemma, targ, (langCode, families[lang])))
 
     langs = list(charSets.keys())
     for ii in range(num):
@@ -193,26 +218,27 @@ if __name__ == "__main__":
     if args.targ_length == -1:
         args.targ_length = int(5 + maxForm)
 
-    instances = syntheticInstances(11000, charSets, families, strLengthD)
+    instances = syntheticInstances(11000, charSets, families, feats, strLengthD, 
+                                   extraFeatures=args.extra_features)
     devSet = instances[-1000:]
     trainSet = instances[:-1000]
-    os.makedirs("inflect_%s" % run, exist_ok=True)
-    writeInstances("inflect_%s/train.txt" % run, trainSet)
-    writeInstances("inflect_%s/dev.txt" % run, devSet)
+    os.makedirs(run, exist_ok=True)
+    writeInstances("%s/train.txt" % run, trainSet, extraFeatures=args.extra_features)
+    writeInstances("%s/dev.txt" % run, devSet, extraFeatures=args.extra_features)
 
     print("Parsing flags")
     variant = 0
-    workdir = "inflect_%s/model%d" % (run, variant)
+    workdir = "%s/model%d" % (run, variant)
     while os.path.exists(workdir):
         variant += 1
-        workdir = "inflect_%s/model%d" % (run, variant)
+        workdir = "%s/model%d" % (run, variant)
     flags = S2SFlags(args, workdir)
-    flags.train = "inflect_%s/train.txt" % run
-    flags.dev = "inflect_%s/dev.txt" % run
+    flags.train = "%s/train.txt" % run
+    flags.dev = "%s/dev.txt" % run
 
     if variant > 0:
         print("Model dir exists, looking for checkpoint")
-        cpdir = os.path.abspath("inflect_%s/model%d/checkpoints/" % (run, variant - 1))
+        cpdir = os.path.abspath("%s/model%d/checkpoints/" % (run, variant - 1))
         cpt = None
         for fi in os.listdir(cpdir):
             if fi.endswith(".index"):

@@ -45,7 +45,9 @@ def get_arguments():
     parser.add_argument("--limit_train", type=int, default=None)
     parser.add_argument("--edit_class", type=str, default=None)
     parser.add_argument("--exemplar_nn", type=str, default=None)
+    parser.add_argument("--edit_graph", type=str, default=None)
     parser.add_argument("--upsample_classifier", action="store_true")
+    parser.add_argument("--extra_features", action="store_true")
 
     parser.add_argument("--synthetic_dev_type", type=str, default=None)
     parser.add_argument("--synthetic_dev_alphabet", type=str, default="common")
