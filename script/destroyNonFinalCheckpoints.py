@@ -19,3 +19,19 @@ if __name__ == "__main__":
                 for si, sn in saves[1:]:
                     spath = root + "/" + si
                     os.unlink(spath)
+
+            saves = []
+            for fi in files:
+                if fi.startswith("manual_optimizer"):
+                    saveN = int(fi.replace(".npy", "").replace("manual_optimizer", ""))
+                    saves.append((fi, saveN))
+            saves.sort(key=lambda xx: xx[1], reverse=True)
+
+            if saves:
+                print("Dir:", root)
+                print("Keeping", saves[0])
+                print("Destroying", saves[1:])
+                for si, sn in saves[1:]:
+                    spath = root + "/" + si
+                    os.unlink(spath)
+
