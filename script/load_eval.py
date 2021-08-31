@@ -16,6 +16,19 @@ from Seq2seq import seq2seq_runner, dataloader
 from Seq2seq import model as model_lib
 
 from s2sFlags import *
+from writeOutput import underscoreToSpace
+
+def forcedValidate(model, batch, targets):
+    # Convert srcs and trgs to integerized tensors.
+    srcs_batch = model.prepare_for_forced_validation(batch, model.src_language_index)
+    trgs_batch = model.prepare_for_forced_validation(targets, model.trg_language_index)
+    assert len(srcs_batch) == len(trgs_batch)
+
+    # Get losses.
+    losses = model.forced_val_step(srcs_batch, trgs_batch)
+    assert len(losses) == len(srcs_batch)
+
+    return losses.numpy()
 
 if __name__ == "__main__":
     #load the data
@@ -134,21 +147,39 @@ if __name__ == "__main__":
                     feats = ["TRG_%s" % fi for fi in feats]
                     src += " " + " ".join(feats)
 
-                    targ = targ.replace(" ", "_")
-                    targ = " ".join(list(targ))
+
+                    if targ.startswith("#FEATS;"):
+                        targ = " ".join(targ.split(";")[1:])
+                    else:
+                        targ = targ.replace(" ", "_")
+                        targ = " ".join(list(targ))
 
                     batch.append(src)
                     targets.append(targ)
 
-                out = model.translate(batch)
-                for (src, pred, targ) in zip(batch, out, targets):
-                    if targ != pred:
-                        ofh.write("*ERROR*\n")
-                    ofh.write("SRC: {}\n".format(src))
-                    ofh.write("TRG: {}\n".format(targ))
-                    ofh.write("PRD: {}\n".format(pred))
-                    ofh.write("\n")
-                
+                if args.sequence_probs:
+                    probs = forcedValidate(model, batch, targets)
+                    for ind, (src, pr, targ) in enumerate(zip(batch, probs, targets)):
+                        ofh.write("SRC: {}\n".format(src))
+                        ofh.write("TRG: {}\n".format(targ))
+                        ofh.write("PROB: {}\n".format(pr))
+
+                else:
+                    if args.character_probs:
+                        out, probs = model.translate(batch, char_probs=True)
+                    else:
+                        out = model.translate(batch)
+                    for ind, (src, pred, targ) in enumerate(zip(batch, out, targets)):
+                        if targ != pred:
+                            ofh.write("*ERROR*\n")
+                        ofh.write("SRC: {}\n".format(src))
+                        ofh.write("TRG: {}\n".format(targ))
+                        ofh.write("PRD: {}\n".format(pred))
+                        if args.character_probs:
+                            prI = probs[ind]
+                            ofh.write("PROB: {}\n".format(" ".join([str(xx) for xx in prI])))
+                            ofh.write("\n")
+
     #import pdb
     #pdb.set_trace()
     #seq2seq_runner.run(flags)
