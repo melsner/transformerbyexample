@@ -238,15 +238,20 @@ class Model(object):
 
         return exact_match_accuracy
 
-    def translate(self, val_srcs):
+    def translate(self, val_srcs, char_probs=False):
         """Gets predictions and converts them from integerized form to strings."""
 
         predicted_sequences = []
+        probs = []
 
         while val_srcs:
             val_srcs_batch = val_srcs[:self.hparams.val_batch_size]
             val_srcs = val_srcs[self.hparams.val_batch_size:]
-            results, _ = self.evaluate(val_srcs_batch)
+            if char_probs:
+                results, _, prs = self.evaluate(val_srcs_batch, return_probs=True)
+                probs.append(prs)
+            else:
+                results, _ = self.evaluate(val_srcs_batch)
 
             # Convert batch results from integer to string space.
             for result in results:
@@ -259,9 +264,14 @@ class Model(object):
                         break
                 predicted_sequences.append(' '.join(prediction))
 
+        if char_probs:
+            probs = np.vstack(probs)
+            probs = probs.T
+            return predicted_sequences, probs
+
         return predicted_sequences
 
-    def evaluate(self, inp_sequences):
+    def evaluate(self, inp_sequences, return_probs=False):
         """Gets predictions and attention weights from a set of input sequences.
 
         Args:
@@ -300,6 +310,7 @@ class Model(object):
         # Initialize decoder input.
         decoder_input = [[self.trg_language_index.vocab_size]]*batch_len
         output = tf.convert_to_tensor(decoder_input)
+        predprobs = []
 
         # Start incrementally decoding.
         for _ in range(self.max_len):
@@ -316,10 +327,16 @@ class Model(object):
             predictions = predictions[:, -1:, :]  # (batch_size, 1, vocab_size)
 
             predicted_ids = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
+            prs = tf.nn.softmax(predictions, axis=-1)
+            predicted_prs = tf.reduce_max(prs, axis=-1)
+            predprobs.append(predicted_prs.numpy())
 
             # Concatentate predicted_id to output to get step i+1 decoder input.
             output = tf.concat([output, predicted_ids], axis=-1)
 
+        if return_probs:
+            predprobs = np.hstack(predprobs).T
+            return output, attention_weights, predprobs
         return output, attention_weights
 
     def validate_forced(self, dev=False):
@@ -374,7 +391,9 @@ class Model(object):
         encoded_sequences = []
         for sequence in src_or_trg:
             middle = []
-            for ch in sequence.split():
+            splitTokens = sequence.split()
+            print("dbg: split into", splitTokens)
+            for ch in splitTokens:
                 try:
                     middle.append(integerizer.tokens.index(ch) + 1)
                 except ValueError:  # Handle OOV characters

@@ -164,13 +164,15 @@ def editMap(mapF, src_length, targ_length):
         break
     lines[ind] = "trg_max_len_seq\t%d\n" % (targ_length,)
 
-  for ind, li in enumerate(lines):
-    if "TRG_FAM" in li:
-      flds = li.strip().split("\t")
-      fam = flds[-1].replace("TRG_FAM_", "")
-      fam = fam.lower()
-      newline = "%s\t%s\tTRG_FAM_%s\n" % (flds[0], flds[1], fam)
-      lines[ind] = newline
+  #used to be necessary because the names of lang families were not downcased
+  #these should now all be downcased before training files are written
+  #for ind, li in enumerate(lines):
+  #  if "TRG_FAM" in li:
+  #    flds = li.strip().split("\t")
+  #    fam = flds[-1].replace("TRG_FAM_", "")
+  #    fam = fam.lower()
+  #    newline = "%s\t%s\tTRG_FAM_%s\n" % (flds[0], flds[1], fam)
+  #    lines[ind] = newline
 
   with open(mapF, "w") as mapFH:
     for li in lines:

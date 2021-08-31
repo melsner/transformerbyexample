@@ -385,7 +385,7 @@ def preprocess_instance(data_format, instance
   else:
     # target
     if trg.startswith("#FEATS;"):
-      trg = ";".split(trg)[1:]
+      trg = trg.split(";")[1:]
     else:
       trg = list(accommodate_multi_word_inflections(trg))
     trg.insert(0, '<BOS>')
