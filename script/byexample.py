@@ -16,7 +16,7 @@ from Seq2seq import seq2seq_runner, dataloader
 from Seq2seq import model as model_lib
 
 from s2sFlags import *
-from utils import edist_alt, edist, cacheWipe, get_size, findLatestModel
+from utils import edist_alt, edist, getEditClass, cacheWipe, get_size, findLatestModel
 import classifyVariability
 import editGraphs
 import ruleFeatures
@@ -48,30 +48,6 @@ def createDataFromPath(dpath, args):
                 
     data = Data(allData, lang=None, family=None, nExemplars=args.n_exemplars, useEditClass=args.edit_class)
     return data
-
-def getEditClass(lemma, form):
-    cost, (alt1, alt2) = edist_alt(lemma, form)
-    #print("Aligned", lemma, form, cost, alt1, alt2)
-    alt = []
-    ap1 = 0
-    ap2 = 0
-    while ap1 < len(alt1) or ap2 < len(alt2):
-        while ap1 < len(alt1) and alt1[ap1][1] == False:
-            alt.append("-%s" % lemma[ap1])
-            ap1 += 1
-        while ap2 < len(alt2) and alt2[ap2][1] == False:
-            alt.append("+%s" % form[ap2])
-            ap2 += 1
-
-        if ap1 < len(alt1) and ap2 < len(alt2) and alt1[ap1][1] == True and alt2[ap2][1] == True:
-            alt.append("*")
-
-        while ap1 < len(alt1) and ap2 < len(alt2) and alt1[ap1][1] == True and alt2[ap2][1] == True:
-            ap1 += 1
-            ap2 += 1
-
-    #print("Edit class:", lemma, form, alt)
-    return tuple(alt)
 
 class Data:
     def __init__(self, instances, lang, family, nExemplars=1, useEditClass=False):

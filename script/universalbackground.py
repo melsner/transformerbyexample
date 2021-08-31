@@ -20,16 +20,11 @@ from s2sFlags import *
 
 from byexample import *
 
-def writeInstances(ofn, instances, extraFeatures=False):
+def writeInstances(ofn, instances):
     with open(ofn, "w") as ofh:
         for (lemma, targ, exLemma, exForm, code) in instances:
             src = "%s:%s>%s" % (lemma, exLemma, exForm)
-            features = ruleFeatures.featureFn(code[0], code[1],
-                                              [],
-                                              getEditClass(lemma, targ),
-                                              getEditClass(exLemma, exForm),
-                                              extraFeatures)
-            ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+            ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(code)))
 
 def fakeInflection(cset, lemma, ex):
     aLengthD = [ (1, .2), (2, .2), (3, .2), (4, .2), (5, .2) ]
@@ -137,26 +132,31 @@ def syntheticInstances(num, charSets, families, feats, strLengthD, extraFeatures
             targ = lemma
             exLemma = lemma
             exForm = lemma
-            res.append((lemma, targ, exLemma, exForm, (lang, families[lang])))
+            res.append((lemma, targ, exLemma, exForm, ("LANG_%s" % lang, "FAM_%s" % families[lang])))
 
     #generate a "word" containing each valid feature, in blocks of 10
     if extraFeatures:
         allFeats = list(feats)
+        allFeats = ["CELL_%s" % xx for xx in allFeats]
 
-        allFeats += ["TRG_RULE_PREF", "TRG_RULE_SUFF", "TRG_RULE_STEM", "TRG_RULE_SUPPLETIVE"]
+        allFeats += ["RULE_PREF", "RULE_SUFF", "RULE_STEM", "RULE_SUPPLETIVE", "RULE_SYNCRETIC"]
         for tp in ["PREF", "SUFF", "IN"]:
             for mod in ["_RM", ""]:
-                for op in ["TRG_CMP_%s_COPY",
-                           "TRG_CMP_%s_REPLACE",
-                           "TRG_CMP_%s_CONTACT",
-                           "TRG_CMP_%s_DISTANT"]:
-                    allFeats += op % (tp + mod)
+                for op in ["CMP_%s_COPY",
+                           "CMP_%s_REPLACE",
+                           "CMP_%s_CONTACT",
+                           "CMP_%s_DISTANT"]:
+                    allFeats.append(op % (tp + mod))
 
         for ind in np.arange(0, len(allFeats), 10):
             lemma = "a"
             targ = "a"
-            langCode = lang + ";" + ";".join(["TRG_CELL_%s" % xx for xx in allFeats[ind: ind + 10]])
-            res.append((lemma, targ, lemma, targ, (langCode, families[lang])))
+            langCode = "LANG_%s" % lang + ";" + ";".join(allFeats[ind: ind + 10])
+            res.append((lemma, targ, lemma, targ, (langCode, "FAM_%s" % families[lang])))
+
+            langCode2 = "CLASSIFY;" + langCode
+            featTarg = "#FEATS;" + langCode
+            res.append((lemma, featTarg, lemma, targ, (langCode2, "FAM_%s" % families[lang])))
 
     langs = list(charSets.keys())
     for ii in range(num):
@@ -165,6 +165,7 @@ def syntheticInstances(num, charSets, families, feats, strLengthD, extraFeatures
         lemma = sampledStr(cset, strLengthD)
         exLemma = sampledStr(cset, strLengthD)
         targ, exForm, code = fakeInflection(cset, lemma, exLemma)
+        code = ("LANG_%s" % code[0], "FAM_%s" % code[1])
         res.append((lemma, targ, exLemma, exForm, code))
 
     return res
@@ -223,8 +224,8 @@ if __name__ == "__main__":
     devSet = instances[-1000:]
     trainSet = instances[:-1000]
     os.makedirs(run, exist_ok=True)
-    writeInstances("%s/train.txt" % run, trainSet, extraFeatures=args.extra_features)
-    writeInstances("%s/dev.txt" % run, devSet, extraFeatures=args.extra_features)
+    writeInstances("%s/train.txt" % run, trainSet)
+    writeInstances("%s/dev.txt" % run, devSet)
 
     print("Parsing flags")
     variant = 0
