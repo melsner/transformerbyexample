@@ -18,6 +18,8 @@ from Seq2seq import model as model_lib
 
 from s2sFlags import *
 
+from utils import readPreds
+
 import tensorflow as tf
 import tensorflow.keras as tkeras
 
@@ -70,29 +72,6 @@ def writeInstances(insts, fn):
         print("Maj:", base, "/", total, maj)
     else:
         print("No reason to bother doing this")
-
-def readPreds(fh):
-    correct = True
-
-    for line in fh:
-        line = line.strip()
-        if not line:
-            continue
-
-        if line.startswith("*ERROR*"):
-            correct = False
-        elif line.startswith("SRC:"):
-            src = "".join(line[len("SRC:"):].split())
-            #src = src.replace("_", " ")
-            #src = src.replace("TRG LANG ", "TRG_LANG_")
-        elif line.startswith("TRG:"):
-            trg = "".join(line[len("TRG:"):].split())
-            trg = trg.replace("_", " ")
-        elif line.startswith("PRD:"):
-            prd = "".join(line[len("PRD:"):].split())
-            #prd = prd.replace("_", " ")
-            yield src, trg, prd, correct
-            src, trg, prd, correct = (None, None, None, True)
 
 def readCases(fh):
     cases = []

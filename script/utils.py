@@ -59,6 +59,30 @@ def edist_alt(s1, s2):
     CACHE_ALT[(s1, s2)] = (mincost, solution)
     return mincost, solution
 
+def getEditClass(lemma, form):
+    cost, (alt1, alt2) = edist_alt(lemma, form)
+    #print("Aligned", lemma, form, cost, alt1, alt2)
+    alt = []
+    ap1 = 0
+    ap2 = 0
+    while ap1 < len(alt1) or ap2 < len(alt2):
+        while ap1 < len(alt1) and alt1[ap1][1] == False:
+            alt.append("-%s" % lemma[ap1])
+            ap1 += 1
+        while ap2 < len(alt2) and alt2[ap2][1] == False:
+            alt.append("+%s" % form[ap2])
+            ap2 += 1
+
+        if ap1 < len(alt1) and ap2 < len(alt2) and alt1[ap1][1] == True and alt2[ap2][1] == True:
+            alt.append("*")
+
+        while ap1 < len(alt1) and ap2 < len(alt2) and alt1[ap1][1] == True and alt2[ap2][1] == True:
+            ap1 += 1
+            ap2 += 1
+
+    #print("Edit class:", lemma, form, alt)
+    return tuple(alt)
+
 def cacheWipe():
     CACHE = {}
     CACHE_ALT = {}
@@ -102,3 +126,30 @@ def findLatestModel(filePath):
         filePath += "/" + bestC
         print("Using", filePath)
         return filePath
+
+def readPreds(fh):
+    correct = True
+
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+
+        if line.startswith("*ERROR*"):
+            correct = False
+        elif line.startswith("SRC:"):
+            src = "".join(line[len("SRC:"):].split())
+            #src = src.replace("_", " ")
+            #src = src.replace("TRG LANG ", "TRG_LANG_")
+        elif line.startswith("TRG:"):
+            trg = "".join(line[len("TRG:"):].split())
+            trg = trg.replace("_", " ")
+        elif line.startswith("PRD:"):
+            prd = "".join(line[len("PRD:"):].split())
+            #prd = prd.replace("_", " ")
+            yield src, trg, prd, correct
+            src, trg, prd, correct = (None, None, None, True)
+        elif line.startswith("PROB:"):
+            prob = float(line[len("PROB:"):])
+            yield src, trg, prob, correct
+            src, trg, prob, correct = (None, None, None, True)
