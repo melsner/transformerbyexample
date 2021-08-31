@@ -40,6 +40,9 @@ def get_arguments():
 
     parser.add_argument('-p', '--POS', type=str, choices=['all', 'N', 'V', 'ADJ'], help='This constrains what parts-of-speeches we train and test on.', default='all')
 
+    parser.add_argument("--character_probs", action="store_true")
+    parser.add_argument("--sequence_probs", action="store_true")
+
     parser.add_argument("--placeholder_load", type=str)
     parser.add_argument("--n_exemplars", type=str, default="5")
     parser.add_argument("--limit_train", type=int, default=None)
