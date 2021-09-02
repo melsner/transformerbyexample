@@ -23,6 +23,12 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+def parseBalance(v):
+    if v.startswith("top"):
+        num = int(v[len("top"):])
+        return ("top", num)
+    return v
+    
 def get_arguments():
 
     parser = argparse.ArgumentParser()
@@ -51,6 +57,7 @@ def get_arguments():
     parser.add_argument("--edit_graph", type=str, default=None)
     parser.add_argument("--upsample_classifier", action="store_true")
     parser.add_argument("--extra_features", action="store_true")
+    parser.add_argument("--balance", type=parseBalance, help="Balance frequencies in training file (freq, logfreq, top#, rule)")
 
     parser.add_argument("--synthetic_dev_type", type=str, default=None)
     parser.add_argument("--synthetic_dev_alphabet", type=str, default="common")

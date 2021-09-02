@@ -1,6 +1,6 @@
 from __future__ import division, print_function
 import sys
-from collections import defaultdict
+from collections import defaultdict, Counter
 import os
 import numpy as np
 import argparse
@@ -53,17 +53,44 @@ class Data:
     def __init__(self, instances, lang, family, nExemplars=1, useEditClass=False):
         self.lang = lang
         self.useEditClass = useEditClass
+        self.frequencies = {}
+        self.langProbs = {}
+
         if self.useEditClass:
             self.internEC = defaultdict(dict)
             self.revECTab = defaultdict(dict)
         if self.lang is not None:
             self.langFamilies = { self.lang : family }
+            if instances.shape[1] == 4:
+                print("Loading frequency data from last column of tsv.")
+                self.frequencies[lang] = {}
+                for (lemma, form, feats, freq) in instances:
+                    try:
+                        self.frequencies[lang][form] = float(freq)
+                    except ValueError:
+                        #print("No frequency for", lang, lemma)
+                        self.frequencies[lang][form] = 1                        
+
+                instances = instances[:, :-1]
+                
             self.instances = [(lemma, form, set(feats.split(";")), lang, family) for (lemma, form, feats) in instances]
         else:
             self.langFamilies = {}
             self.instances = []
             for (raw, lang, fam) in instances:
                 self.langFamilies[lang] = fam
+                if raw.shape[1] == 4:
+                    print("Loading frequency data from last column of tsv (%s)." % lang)
+                    self.frequencies[lang] = Counter()
+                    for (lemma, form, feats, freq) in raw:
+                        try:
+                            self.frequencies[lang][form] = float(freq)
+                        except ValueError:
+                            #print("No frequency for", lang, lemma)
+                            self.frequencies[lang][form] = 1                        
+
+                    raw = raw[:, :-1]
+
                 local = [(lemma, form, set(feats.split(";")), lang, fam) for (lemma, form, feats) in raw]
                 self.instances += local
         self.byFeature = defaultdict(list)
@@ -284,164 +311,210 @@ class Data:
         else:
             return int(limit // langSize)
 
-    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=False, exemplarNN=None, extraFeatures=False):
+    def targProb(self, lang, form, feats, balance):
+        assert(self.frequencies)
+        if (lang, balance) in self.langProbs:
+            return self.langProbs[lang, balance][form]
+        else:
+            self.langProbs[lang, balance] = {}
+
+            formCounts = Counter()
+            for (li, fi, fts, lg, fam) in self.instances:
+                if lg == lang:
+                    formCounts[fi] += 1
+
+            ruleCounts = Counter()
+            if balance == "rule":
+                for (li, fi, fts, lg, fam) in self.instances:
+                    if lg == lang:
+                        rule = getEditClass(li, fi)
+                        ruleCounts[rule] += 1
+                                
+            allStats = []
+            for (li, fi, fts, lg, fam) in self.instances:
+                if lg == lang:
+                    stat = self.frequencies[lang][fi] / formCounts[fi]
+                    if balance == "rule":
+                        rule = getEditClass(li, fi)
+                        stat = (1 / formCounts[fi]) * (1 / ruleCounts[rule])
+                allStats.append(stat)
+
+            allStats = np.array(allStats)
+            
+            if balance == "freq" or balance == "rule":
+                allStats /= np.sum(allStats)
+            elif balance == "logfreq":
+                allStats = np.log(.5 + allStats)
+                allStats /= np.sum(allStats)
+            else:
+                top, topk = balance
+                assert(top == "top")
+                aInds = np.argsort(allStats)
+                cutoff = allStats[aInds[-topk]]
+                allStats = (allStats >= cutoff).astype(float)
+                allStats /= np.sum(allStats)
+                
+            for (li, fi, fts, lg, fam), pr in zip(self.instances, allStats):
+                self.langProbs[lang, balance][fi] = pr
+
+            return self.langProbs[lang, balance][form]                
+
+    def sampleTargets(self, instances, limit, nExemplars, balance):
+        instPerLang = defaultdict(int)
+        langSize = defaultdict(int)
+        for (lemma, form, feats, lang, fam) in instances:
+            langSize[lang] += 1
+
+        #basic use case: just return all the targets in order
+        #basic case with limit: return up to *limit* examples per language
+        #dynamic: return up to *limit* examples, with *langExemplars* exes each
+        #cases with "all" exemplars: return None as nExemplars
+        #add balancing strategies (by freq, log freq, top-k)                    
+        if limit is None:
+            assert(nExemplars != "dynamic")
+            assert(balance is None)
+            for (lemma, form, feats, lang, fam) in instances:
+                nx = self.nExemplars
+                yield (lemma, form, feats, lang, fam, nx)
+
+        else:
+            assert(nExemplars != "all")
+            for (lemma, form, feats, lang, fam) in instances:
+                if nExemplars == "dynamic":
+                    nx = self.langExemplars(limit, langSize[lang])
+                    totalSize = limit
+                else:
+                    nx = nExemplars
+                    totalSize = nx * langSize[lang]
+
+                if balance is not None:
+                    pr = self.targProb(lang, form, feats, balance)
+                    if pr == 0:
+                        continue
+                    nx = int(pr * totalSize)
+                    if nx == 0:
+                        nx = int(np.random.random() < (pr * totalSize))
+
+                    # print("item with prob", pr, "expected to get", (pr * totalSize), "exs",
+                    #       "and gets", nx)
+                        
+                instPerLang[lang] += nx
+                yield (lemma, form, feats, lang, fam, nx)
+
+    def exemplarDistribution(self, similarityRank, feats, lang, lemma, form, allowSelfExemplar=False,
+                             balance=None):
+        #cases to support:
+        #random exemplars
+        #similar exemplars
+        #sampled exemplars later
+        #hooks for approximate/mixed/graph/nn exemplar selection-- do not support, no plans to use these modes going forward
+
+        if similarityRank in ["graph", "nn", "mixed", "approximate"]:
+            assert(0), "Currently unsupported exemplar mode %s" % similarityRank
+
+        assert(similarityRank in ["exact", None])
+
+        #first, check if we need the edit class; if so, fetch
+        similar = None
+        if similarityRank == "exact":
+            similar = self.getEditClass(feats, lang, lemma, form)
+
+        if allowSelfExemplar:
+            avoid = lemma
+        else:
+            avoid = None
+
+        available = []
+        if similar is not None and similarityRank == "exact":
+            available = self.byEditClass[frozenset(feats), lang][similar]
+            available = [(lemma, form, feats, lang) for (lemma, form, feats, lang) in available if lemma != avoid]
+
+            # if available:
+            #     print("Found", available[0], "for edit class", similar)
+
+            if not available:
+                edByCell = self.byEditClass[frozenset(feats), lang]
+                edClasses = list(edByCell.keys())
+                np.random.shuffle(edClasses)
+                for edc in sorted(edClasses, key=lambda xx: edist(self.revEC(feats, lang, xx), 
+                                                                  self.revEC(feats, lang, similar))):
+                    #print("\tNext class", edc)
+
+                    available = edByCell[edc]
+                    available = [(lemma, form, feats, lang) for (lemma, form, feats, lang) in available if lemma != avoid]
+                    if available:
+                        break
+
+        else:
+            available = self.byFeature[frozenset(feats), lang]
+            available = [(lemma, form, feats, lang) for (lemma, form, feats, lang) in available if lemma != avoid]
+
+        if len(available) == 0:
+            if hasattr(self, "revECTab"):
+                strSim = self.revEC(feats, lang, similar)
+            else:
+                strSim = "None"
+            raise ValueError("No exemplar: lang %s feats %s similar %s mode %s" % (lang, str(feats), strSim, similarityRank))
+
+        prs = None
+        if balance is not None:
+            prs = [self.targProb(lang, form, feats, balance) for (lemma, form, feats, lang) in available]
+            prs = np.array(prs)
+            if np.sum(prs) > 0:
+                prs /= np.sum(prs)
+            else:
+                prs = np.ones_like(prs)
+                prs /= np.sum(prs)
+
+        return available, prs
+            
+    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=None, exemplarNN=None, extraFeatures=False, balance=None):
         assert(not (dev and allowSelfExemplar))
         assert(not (useSimilarExemplar and exemplarNN))
         #will allow this for some dev runs and see what happens, but be careful not to use for eval scores
         #assert(not (dev and useSimilarExemplar))
         if dev:
             instances = self.devSet
+            limit = None
+            nExemplars = 5
+            balance = None
         else:
             instances = self.instances
-
-        instPerLang = defaultdict(int)
-        langSize = defaultdict(int)
-        for (lemma, form, feats, lang, fam) in instances:
-            langSize[lang] += 1
+            nExemplars = self.nExemplars
 
         with open(ofn, "w") as ofh:
-            for ind, (lemma, form, feats, lang, fam) in enumerate(instances):
+            for ind, (lemma, form, feats, lang, fam, nExemplars) in enumerate(self.sampleTargets(instances, limit, nExemplars, balance=balance)):
                 if ind % 1000 == 0:
                     print(ind, "/", len(instances), "instances written...")
 
-                if limit and instPerLang[lang] > limit:
+                try:
+                    exes, exePrs = self.exemplarDistribution(useSimilarExemplar, feats, lang, lemma, form,
+                                                             balance=balance, allowSelfExemplar=allowSelfExemplar)
+                except ValueError as err:
+                    print("Singleton feature vector", feats, lemma)
+                    print("Detailed error", err)
                     continue
 
                 if self.nExemplars == "all":
-                    available = self.byFeature[frozenset(feats)]
-                    available = [(exL, fL, ftL, lL) for (exL, fL, ftL, lL) in available if exL != lemma]
-                    for exLemma, exForm, exFeats, exLang in available:
-                        src = "%s:%s>%s" % (lemma, exLemma, exForm)
-                        targ = form
-                        features = ruleFeatures.featureFn(lang, fam, feats, 
-                                                          getEditClass(lemma, form), 
-                                                          getEditClass(exLemma, exForm),
-                                                          extraFeatures)
-                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
-                        ofh.write(ruleFeatures.classificationInst(src, targ, features))
-                elif exemplarNN is not None:
-                    #ugh so much code duplication
-                    if self.nExemplars == "dynamic":
-                        if not dev:
-                            nExemplars = self.langExemplars(limit, langSize[lang])
-                        else:
-                            nExemplars = 5
-                    else:
-                        nExemplars = self.nExemplars
-
-                    try:
-                        if allowSelfExemplar:
-                            nnExes = self.getNNExemplars(lemma, feats, lang, fam, exemplarNN, nExemplars=nExemplars)
-                        else:
-                            nnExes = self.getNNExemplars(lemma, feats, lang, fam, exemplarNN, avoid=lemma, nExemplars=nExemplars)
-                    except ValueError as err:
-                        print("Singleton feature vector", feats, lemma)
-                        print("Detailed error", err)
-                        continue
-
-                    for ex in nnExes:
-                        exLemma, exForm, exFeats, exLang = ex
-
-                        src = "%s:%s>%s" % (lemma, exLemma, exForm)
-                        targ = form
-                        features = ruleFeatures.featureFn(lang, fam, feats, 
-                                                          getEditClass(lemma, form), 
-                                                          getEditClass(exLemma, exForm),
-                                                          extraFeatures)
-                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
-                        ofh.write(ruleFeatures.classificationInst(src, targ, features))
-                        instPerLang[lang] += 1
-
-                elif useSimilarExemplar == "graph":
-                    #ugh so much code duplication
-                    if self.nExemplars == "dynamic":
-                        if not dev:
-                            nExemplars = self.langExemplars(limit, langSize[lang])
-                        else:
-                            nExemplars = 5
-                    else:
-                        nExemplars = self.nExemplars
-
-                    editClass = self.getEditClass(feats, lang, lemma, form)
-
-                    ###xxx
-                    dists = self.graphDists[frozenset(feats), lang]
-                    strSim = self.revEC(feats, lang, editClass)
-                    if strSim not in dists:
-                        continue
-                    cellDist = dists[strSim]
-                    if len(cellDist) == 1:
-                        continue
-
-                    for exN in range(nExemplars):
-                        instPerLang[lang] += 1
-                        try:
-                            if allowSelfExemplar:
-                                ex = self.getGraphExemplar(feats, lang, similar=editClass)
-                            else:
-                                ex = self.getGraphExemplar(feats, lang, avoid=lemma, similar=editClass)
-                        except ValueError as err:
-                            print("Singleton feature vector", feats, lemma)
-                            print("Detailed error", err)
-                            continue
-                            #raise
-
-                        exLemma, exForm, exFeats, exLang = ex
-
-                        src = "%s:%s>%s" % (lemma, exLemma, exForm)
-                        targ = form
-                        features = ruleFeatures.featureFn(lang, fam, feats, 
-                                                          getEditClass(lemma, form), 
-                                                          getEditClass(exLemma, exForm),
-                                                          extraFeatures)
-                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
-                        ofh.write(ruleFeatures.classificationInst(src, targ, features))
+                    size = len(exes)
+                    replace = False
                 else:
-                    editClass = None
-                    if useSimilarExemplar:
-                        editClass = self.getEditClass(feats, lang, lemma, form)
-                        #print("Edit class", lemma, form, editClass)
-
-                    if self.nExemplars == "dynamic":
-                        if not dev:
-                            nExemplars = self.langExemplars(limit, langSize[lang])
-                        else:
-                            nExemplars = 5
-                    else:
-                        nExemplars = self.nExemplars
-
-                    for exN in range(nExemplars):
-                        if useSimilarExemplar != "mixed":
-                            simRankMode = useSimilarExemplar
-                        elif exN < nExemplars / 2:
-                            simRankMode = "exact"
-                        else:
-                            simRankMode = None
-
-                        instPerLang[lang] += 1
-                        try:
-                            if allowSelfExemplar:
-                                ex = self.getExemplar(feats, lang, similar=editClass, similarityRank=simRankMode)
-                            else:
-                                ex = self.getExemplar(feats, lang, avoid=lemma, similar=editClass, 
-                                                      similarityRank=simRankMode)
-                        except ValueError as err:
-                            print("Singleton feature vector", feats, lemma)
-                            print("Detailed error", err)
-                            continue
-                            #raise
-
-                        exLemma, exForm, exFeats, exLang = ex
-
-                        src = "%s:%s>%s" % (lemma, exLemma, exForm)
-                        targ = form
-                        features = ruleFeatures.featureFn(lang, fam, feats, 
-                                                          getEditClass(lemma, form), 
-                                                          getEditClass(exLemma, exForm),
-                                                          extraFeatures)
-                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                    size = nExemplars
+                    replace = True
+                    
+                samples = np.random.choice(len(exes), p=exePrs, size=size, replace=replace)
+                samples = [exes[ii] for ii in samples]
+                for (exLemma, exForm, exFeats, exLang) in samples:
+                    src = "%s:%s>%s" % (lemma, exLemma, exForm)
+                    targ = form
+                    features = ruleFeatures.featureFn(lang, fam, feats, 
+                                                      getEditClass(lemma, form), 
+                                                      getEditClass(exLemma, exForm),
+                                                      extraFeatures)
+                    ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                    if extraFeatures:
                         ofh.write(ruleFeatures.classificationInst(src, targ, features))
-
+            
 def shuffleData(data):
     inds = np.arange(data.shape[0])
     np.random.shuffle(inds)
@@ -553,7 +626,7 @@ if __name__ == "__main__":
         os.makedirs(run, exist_ok=True)
         data.writeInstances("%s/dev.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
                             useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN, 
-                            extraFeatures=args.extra_features)
+                            extraFeatures=args.extra_features, balance=args.balance)
         sys.exit(0)
 
     if not trainExists:
@@ -566,10 +639,14 @@ if __name__ == "__main__":
             data.junkInstances("%s/train.txt" % run)
             data.junkInstances("%s/dev.txt" % run, dev=True)
         else:
-            data.writeInstances("%s/train.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
+            data.writeInstances("%s/train.txt" % run, allowSelfExemplar=args.allow_self_exemplar,
+                                limit=args.limit_train,
                                 useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN,
-                                extraFeatures=args.extra_features)
-            data.writeInstances("%s/dev.txt" % run, dev=True, useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN, extraFeatures=args.extra_features)
+                                extraFeatures=args.extra_features,
+                                balance=args.balance)
+            data.writeInstances("%s/dev.txt" % run, dev=True, useSimilarExemplar=args.edit_class,
+                                exemplarNN=exemplarNN, extraFeatures=args.extra_features,
+                                balance=args.balance)
 
     if args.load_other:
         args.load_other = findLatestModel(args.load_other)
