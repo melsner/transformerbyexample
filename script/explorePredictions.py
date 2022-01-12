@@ -22,6 +22,18 @@ from s2sFlags import *
 from utils import edist_alt, edist, cacheWipe, get_size, findLatestModel
 from byexample import *
 
+def mostFrequentWord(data, edCl):
+    words = data.byEditClass[fullCell][edCl]    
+    frs = []
+    for (lemma, form, feats, lang) in words:
+        try:
+            freq = data.frequencies[lang][form]
+        except KeyError:
+            freq = 0
+        frs.append(freq)
+
+    return max(frs)
+
 if __name__ == "__main__":
     print("Script start")
     args = get_arguments()
@@ -45,20 +57,23 @@ if __name__ == "__main__":
 
         print("Running single dataset for", lang, "in", family)
         rawData = np.loadtxt(dfile, dtype=str, delimiter="\t")
-        rawData = rawData[:, :3] #drop orthographic
+        #rawData = rawData[:, :3] #drop orthographic
         data = Data(rawData, lang=lang, family=family, nExemplars=args.n_exemplars, 
                     useEditClass="exact")
 
     data.langFamilies = { "deu" : "germanic",
                           "nld" : "germanic",
-                          "eng" : "germanic" }
+                          "eng" : "germanic",
+                          "gle" : "celtic",
+                          "zul" : "romance" #placeholder for spanish
+    }
 
     print("Loaded data")
 
     #srcLemma = "Adeliepinguin"
     #targ = "Adeliepinguine"
     #cell = (frozenset(["NOM", "PL", "N"]), "deu")
-    nSamples = 5
+    nSamples = 10
 
     dev = args.devset
     workdir = run + "/judgements"
@@ -71,9 +86,12 @@ if __name__ == "__main__":
 
         for line in devfh:
             #(srcLemma, targ, cell, orthLemma, orthForm) = line.strip().split("\t")
-            (srcLemma, targ, cell, rating) = line.strip().split("\t")
-            srcLemma = srcLemma.replace(" ", "")
-            targ = targ.replace(" ", "")
+            (srcLemma, targ, cell) = line.strip().split("\t")[:3]
+
+            if args.nospace:
+                srcLemma = srcLemma.replace(" ", "")
+                targ = targ.replace(" ", "")
+
             cell = frozenset(cell.split(";"))
             if srcLemma in lemmas:
                 continue
@@ -88,19 +106,30 @@ if __name__ == "__main__":
 
             sub = data.byEditClass[fullCell]
             for edCl in sub:
+                mostFreq = mostFrequentWord(data, edCl)
                 words = data.byEditClass[fullCell][edCl]
-                sample = [words[xx] for xx in np.random.choice(len(words), nSamples)]
+
+                if args.limit_train and len(words) <= args.limit_train:
+                    continue
+
+                sample = [words[xx] for xx in 
+                          np.random.choice(len(words), min(len(words), nSamples),
+                                           replace=False)]
                 for xi in sample:
                     exLemma, exForm, exFeats, exLang = xi
+                    if exLemma == srcLemma:
+                        continue #no self exemplars
+
                     src = "%s:%s>%s" % (srcLemma, exLemma, exForm)
 
                     features = ruleFeatures.featureFn(lang, fam,
                                                       cell,
                                                       getEditClass(exLemma, exForm),
                                                       getEditClass(exLemma, exForm),
-                                                      True)
+                                                      extraFeatures="all")
                     ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
-                    row = [getEditClass(exLemma, exForm), len(words), "%s>%s" % (words[0][0], words[0][1])]
+                    row = [getEditClass(exLemma, exForm), len(words), mostFreq,
+                           "%s>%s" % (words[0][0], words[0][1])]
                     editFh.write("\t".join([str(xx) for xx in row]))
                     editFh.write("\n")
                     classFh.write(ruleFeatures.classificationInst(src, targ, features))
