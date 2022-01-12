@@ -344,7 +344,7 @@ class Data:
             if balance == "freq" or balance == "rule":
                 allStats /= np.sum(allStats)
             elif balance == "logfreq":
-                allStats = np.log(.5 + allStats)
+                allStats = np.log(1 + allStats)
                 allStats /= np.sum(allStats)
             else:
                 top, topk = balance
@@ -374,18 +374,21 @@ class Data:
             assert(nExemplars != "dynamic")
             assert(balance is None)
             for (lemma, form, feats, lang, fam) in instances:
-                nx = self.nExemplars
+                nx = nExemplars
                 yield (lemma, form, feats, lang, fam, nx)
 
         else:
             assert(nExemplars != "all")
             for (lemma, form, feats, lang, fam) in instances:
+                if instPerLang[lang] > limit:
+                    continue
+
                 if nExemplars == "dynamic":
                     nx = self.langExemplars(limit, langSize[lang])
                     totalSize = limit
                 else:
                     nx = nExemplars
-                    totalSize = nx * langSize[lang]
+                    totalSize = min(limit, nx * langSize[lang])
 
                 if balance is not None:
                     pr = self.targProb(lang, form, feats, balance)
@@ -397,6 +400,9 @@ class Data:
 
                     # print("item with prob", pr, "expected to get", (pr * totalSize), "exs",
                     #       "and gets", nx)
+
+                    if nx == 0:
+                        continue
                         
                 instPerLang[lang] += nx
                 yield (lemma, form, feats, lang, fam, nx)
@@ -468,7 +474,8 @@ class Data:
 
         return available, prs
             
-    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=None, exemplarNN=None, extraFeatures=False, balance=None):
+    def writeInstances(self, ofn, dev=False, allowSelfExemplar=False, limit=None, useSimilarExemplar=None, exemplarNN=None, extraFeatures=False, 
+                       balanceTargets=None, balanceExemplars=None):
         assert(not (dev and allowSelfExemplar))
         assert(not (useSimilarExemplar and exemplarNN))
         #will allow this for some dev runs and see what happens, but be careful not to use for eval scores
@@ -477,19 +484,20 @@ class Data:
             instances = self.devSet
             limit = None
             nExemplars = 5
-            balance = None
+            balanceTargets = None
         else:
             instances = self.instances
             nExemplars = self.nExemplars
 
         with open(ofn, "w") as ofh:
-            for ind, (lemma, form, feats, lang, fam, nExemplars) in enumerate(self.sampleTargets(instances, limit, nExemplars, balance=balance)):
+            for ind, (lemma, form, feats, lang, fam, nx) in enumerate(self.sampleTargets(instances, limit, nExemplars, 
+                                                                                         balance=balanceTargets)):
                 if ind % 1000 == 0:
                     print(ind, "/", len(instances), "instances written...")
 
                 try:
                     exes, exePrs = self.exemplarDistribution(useSimilarExemplar, feats, lang, lemma, form,
-                                                             balance=balance, allowSelfExemplar=allowSelfExemplar)
+                                                             balance=balanceExemplars, allowSelfExemplar=allowSelfExemplar)
                 except ValueError as err:
                     print("Singleton feature vector", feats, lemma)
                     print("Detailed error", err)
@@ -499,9 +507,9 @@ class Data:
                     size = len(exes)
                     replace = False
                 else:
-                    size = nExemplars
+                    size = nx
                     replace = True
-                    
+
                 samples = np.random.choice(len(exes), p=exePrs, size=size, replace=replace)
                 samples = [exes[ii] for ii in samples]
                 for (exLemma, exForm, exFeats, exLang) in samples:
@@ -512,7 +520,7 @@ class Data:
                                                       getEditClass(exLemma, exForm),
                                                       extraFeatures)
                     ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
-                    if extraFeatures:
+                    if extraFeatures in ["all", "rule"]:
                         ofh.write(ruleFeatures.classificationInst(src, targ, features))
             
 def shuffleData(data):
@@ -626,7 +634,7 @@ if __name__ == "__main__":
         os.makedirs(run, exist_ok=True)
         data.writeInstances("%s/dev.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
                             useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN, 
-                            extraFeatures=args.extra_features, balance=args.balance)
+                            extraFeatures=args.extra_features, balanceTargets=args.balance_targets, balanceExemplars=args.balance_exemplars)
         sys.exit(0)
 
     if not trainExists:
@@ -643,10 +651,10 @@ if __name__ == "__main__":
                                 limit=args.limit_train,
                                 useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN,
                                 extraFeatures=args.extra_features,
-                                balance=args.balance)
+                                balanceTargets=args.balance_targets, balanceExemplars=args.balance_exemplars)
             data.writeInstances("%s/dev.txt" % run, dev=True, useSimilarExemplar=args.edit_class,
                                 exemplarNN=exemplarNN, extraFeatures=args.extra_features,
-                                balance=args.balance)
+                                balanceTargets=args.balance_targets, balanceExemplars=args.balance_exemplars)
 
     if args.load_other:
         args.load_other = findLatestModel(args.load_other)

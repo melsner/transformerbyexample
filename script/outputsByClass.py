@@ -8,50 +8,54 @@ from collections import defaultdict, Counter
 from utils import readPreds, getEditClass
 
 def statsByOutput(data):
-    outToStats = defaultdict(Counter)
-    classToOut = defaultdict(Counter)
-    classEx = {}
-    classPrs = defaultdict(list)
+    #rule : { output : list of prs }
+    ruleOutputs = defaultdict(lambda: defaultdict(list))
+    ruleToInfo = {}
+    seenExes = set()
 
-    for (targ, pred, correct, key, prob) in data:
-        rule, nWords, ex = key.strip().split("\t")
+    for (exemplar, targ, pred, correct, key, prob) in data:
+        rule, nWords, wMax, ruleEx = key.strip().split("\t")
         nWords = int(nWords)
-        classToOut[rule][pred] += 1
-        classEx[rule] = ex
-        classPrs[rule].append(prob)
-        outToStats[pred][(rule, nWords, ex)] += 1
+        wMax = float(wMax)
+        ruleToInfo[rule] = (ruleEx, nWords, wMax)
+        if exemplar in seenExes:
+            print("Warning: saw exemplar twice", exemplar)
+            continue
 
-    # for cls, sub in classToOut.items():
-    #     print("Edit class:", cls, classEx[cls])
-    #     print("Outputs:", sub.most_common())
+        seenExes.add(exemplar)
+        ruleOutputs[rule][pred].append(prob)
 
-    #     print()
+    #pred : [ (rule, nWords, ex, prs) ]
+    outToStats = defaultdict(list)
+    predToTotal = Counter()
+    for rule, sub in ruleOutputs.items():
+        totalExes = sum([len(xx) for xx in sub.values()])
+        ruleEx, nWords, wMax = ruleToInfo[rule]
 
-    predToTotal = {}
-    for pred, stats in outToStats.items():
-        total = 0
-        for (rule, nWords, ex) in stats:
-            total += nWords
-        predToTotal[pred] = total
+        for pred, prs in sub.items():
+            supportingExes = len(prs)
+            proportion = supportingExes / totalExes
+            supportingWords = nWords * proportion
 
-    return outToStats, predToTotal, classPrs
+            outToStats[pred].append( (rule, supportingWords, wMax, ruleEx, prs) )
+            predToTotal[pred] += supportingWords
+
+    return outToStats, predToTotal
 
 
 def collate(data):
-    outToStats, predToTotal, classPrs = statsByOutput(data)
+    outToStats, predToTotal = statsByOutput(data)
 
     for pred, total in sorted(predToTotal.items(), key=lambda xx: xx[1], reverse=True):
         print("Output:", pred)
         stats = outToStats[pred]
         print("Supported by:", len(stats), "rules, total words:", total)
-        for (rule, nWords, ex), ct in stats.items():
-            prs = classPrs[rule]
+        for (rule, nWords, wMax, ex, prs) in stats:
             lowPr = min(prs)
             highPr = max(prs)
             medPr = np.median(prs)
-            print("\t (%d samples):" % ct, rule, ex, ":\t", nWords, ":\t %.2f %.2f %.2f" % (lowPr, medPr, highPr))
+            print("\t (%d samples):" % len(prs), rule, ex, ":\t", nWords, ":\t %.2f %.2f %.2f" % (lowPr, medPr, highPr))
         print()
-
 
 if __name__ == "__main__":
     preds = open(sys.argv[1])
@@ -64,8 +68,8 @@ if __name__ == "__main__":
 
     bySource = defaultdict(list)
     for (src, targ, pred, correct), key, prob in zip(readPreds(preds), keys, prs):
-        srcLemma = src.split(":")[0]
-        bySource[srcLemma].append((targ, pred, correct, key, prob))
+        srcLemma, exe = src.split(":")
+        bySource[srcLemma].append((exe, targ, pred, correct, key, prob))
 
     for src, data in bySource.items():
         print("--------------")
