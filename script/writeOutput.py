@@ -15,6 +15,13 @@ else:
 
 from utils import edist, edist_alt
 
+def underscoreToSpace(xx):
+    if xx == "_":
+        return " "
+    if "_" in xx:
+        return " " + xx
+    return xx
+
 def readPreds(fh):
     for line in fh:
         line = line.strip()
@@ -22,15 +29,17 @@ def readPreds(fh):
             continue
 
         if line.startswith("SRC:"):
-            src = "".join(line[len("SRC:"):].split())
-            src = src.replace("_", " ")
-            src = src.replace("TRG LANG", "TRG_LANG")
+            src = line[len("SRC:"):].split()
+            src = [underscoreToSpace(xx) for xx in src]
+            src = "".join(src)
         elif line.startswith("TRG:"):
-            trg = "".join(line[len("TRG:"):].split())
-            trg = trg.replace("_", " ")
+            trg = line[len("TRG:"):].split()
+            trg = [underscoreToSpace(xx) for xx in trg]
+            trg = "".join(trg)
         elif line.startswith("PRD:"):
-            prd = "".join(line[len("PRD:"):].split())
-            prd = prd.replace("_", " ")
+            prd = line[len("prd:"):].split()
+            prd = [underscoreToSpace(xx) for xx in prd]
+            prd = "".join(prd)
             yield src, trg, prd
             src, trg, prd = (None, None, None)
 
