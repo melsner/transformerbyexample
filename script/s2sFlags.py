@@ -49,6 +49,8 @@ def get_arguments():
     parser.add_argument("--character_probs", action="store_true")
     parser.add_argument("--sequence_probs", action="store_true")
 
+    parser.add_argument("--nospace", action="store_true")
+
     parser.add_argument("--placeholder_load", type=str)
     parser.add_argument("--n_exemplars", type=str, default="5")
     parser.add_argument("--limit_train", type=int, default=None)
@@ -56,8 +58,9 @@ def get_arguments():
     parser.add_argument("--exemplar_nn", type=str, default=None)
     parser.add_argument("--edit_graph", type=str, default=None)
     parser.add_argument("--upsample_classifier", action="store_true")
-    parser.add_argument("--extra_features", action="store_true")
-    parser.add_argument("--balance", type=parseBalance, help="Balance frequencies in training file (freq, logfreq, top#, rule)")
+    parser.add_argument("--extra_features", type=str, default=None)
+    parser.add_argument("--balance_targets", type=parseBalance, help="Balance frequencies in training file (freq, logfreq, top#, rule)")
+    parser.add_argument("--balance_exemplars", type=parseBalance, help="Balance frequencies in training file (freq, logfreq, top#, rule)")
 
     parser.add_argument("--synthetic_dev_type", type=str, default=None)
     parser.add_argument("--synthetic_dev_alphabet", type=str, default="common")
