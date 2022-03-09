@@ -96,7 +96,8 @@ def discoverVocab(dpath):
 
             rawData = np.loadtxt(dfile, dtype=str, delimiter="\t")
             charSet = Counter()
-            for (lemma, form, feats) in rawData:
+            #column limit allows for use of data with frequencies
+            for (lemma, form, feats) in rawData[:, :3]:
                 if len(form) > 50 and " " in form:
                     print("Anomalous word form (skipping)", fi, form)
                     continue
