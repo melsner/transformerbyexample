@@ -622,7 +622,7 @@ if __name__ == "__main__":
             family = family.lower()
             print("Identified devset as", lang, family)
 
-            rawDev = np.loadtxt(args.devset, dtype=str, delimiter="\t")
+            rawDev = np.loadtxt(args.devset, dtype=str, delimiter="\t")[:, :3]
             data.devSet = [(lemma, form, set(feats.split(";")), lang, family) for (lemma, form, feats) in rawDev]
 
     assert(args.edit_class != "graph" or args.edit_graph is not None)

@@ -12,7 +12,7 @@ if six.PY2:
 else:
     import pickle as pkl
 
-def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fine", test=False):
+def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fine", test=False, special=None, limitTrain=None):
     langName = os.path.basename(train).replace(".trn", "")
     if jobName is None:
         jobName = langName
@@ -29,6 +29,9 @@ def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fi
     famName = os.path.basename(os.path.abspath(dParent))
     exnn = run + "/fam/" + famName + "-learn-class/model0/checkpoints/"
 
+    if special is None:
+        special = "ERROR"
+
     print("\t", langName, train, dev, parent)
     with open(fName, "w") as ofh:
         with open(genericJob, "r") as ifh:
@@ -40,6 +43,8 @@ def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fi
                 line = line.replace("<ROOT>", run)
                 line = line.replace("<EXNN>", exnn)
                 line = line.replace("<LOC>", location)
+                line = line.replace("<SPECIAL>", special)
+                line = line.replace("<LIMIT>", str(limitTrain))
                 ofh.write(line)
 
 if __name__ == "__main__":

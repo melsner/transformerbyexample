@@ -392,7 +392,7 @@ class Model(object):
         for sequence in src_or_trg:
             middle = []
             splitTokens = sequence.split()
-            print("dbg: split into", splitTokens)
+            # print("dbg: split into", splitTokens)
             for ch in splitTokens:
                 try:
                     middle.append(integerizer.tokens.index(ch) + 1)
