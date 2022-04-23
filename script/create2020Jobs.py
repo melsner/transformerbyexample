@@ -74,7 +74,7 @@ if __name__ == "__main__":
                 langFamily[dfile] = root
 
     for fam in families:
-        famName = os.path.basename(fam)
+        famName = os.path.basename(fam).lower()
         writeFile("%s/jobs/fam" % odir, fam, genericFamily, dParent=run, run=run, location="fam")
         #classifier learning stack: by family
         writeFile("%s/jobs/fam" % odir, fam, genericWriteSelection, dParent="%s/fam/%s" % (odir, famName),
