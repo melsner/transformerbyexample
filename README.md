@@ -21,13 +21,21 @@ python -u script/byexample.py --run sm_challenge_22/fine/ang --data ../2022Infle
 #python -u script/writeOutput.py ../2022InflectionST/part1-byfam/germanic/ang.dev sm_challenge_22/fine/ang/model0/predictions_dev.txt
 
 #evaluation if you used --extra_features
+  
 echo "--------------- predicting ------------------"
+  
 python -u script/load_eval.py --run sm_challenge_22/fine/ang --devset sm_challenge_22/fine/ang/dev.txt
+  
 echo "--------------- creating featurized file for second pass -------------"
+  
 python -u script/usePredictedFeatures.py sm_challenge_22/fine/ang/ang-dev.txt/predictions_dev.txt
+  
 echo "--------------- predicting ------------------"
+  
 python -u script/load_eval.py --run sm_challenge_22/fine/ang --devset sm_challenge_22/fine/ang/ang-dev.txt/predictions_dev-predicted.txt 
+  
 echo "---------- write output --------------"
+  
 python -u script/writeOutput.py ../2022InflectionST/part1-byfam/germanic/ang.dev sm_challenge_22/fine/ang/ang-dev.txt-predictions_dev-predicted.txt/predictions_dev.txt > sm_challenge_22/fine/ang/writeOutput.log
   
 You can create a runnable job script per language using create2020Jobs.py; this may require modification for your system.
