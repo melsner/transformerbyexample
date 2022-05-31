@@ -1,6 +1,7 @@
 from __future__ import division, print_function
 import sys
 from collections import defaultdict, Counter
+import re
 import os
 import numpy as np
 import argparse
@@ -29,11 +30,11 @@ def createDataFromPath(dpath, args):
             valid = False
             family = None
 
-            if lang.endswith(".dev") or lang.endswith(".trn"):
+            if lang.endswith(".dev") or lang.endswith(".trn") or lang.endswith(".train"):
                 #set lang fam for 2020
                 family = os.path.basename(root)
 
-            for code in ["-train-low", "-train-high", ".trn"]:
+            for code in ["-train-low", "-train-high", ".trn", ".train", ".test"]:
                 if code in lang:
                     lang = lang.replace(code, "")
                     valid = True
@@ -489,6 +490,8 @@ class Data:
             instances = self.instances
             nExemplars = self.nExemplars
 
+        written = 0
+
         with open(ofn, "w") as ofh:
             for ind, (lemma, form, feats, lang, fam, nx) in enumerate(self.sampleTargets(instances, limit, nExemplars, 
                                                                                          balance=balanceTargets)):
@@ -520,9 +523,22 @@ class Data:
                                                       getEditClass(exLemma, exForm),
                                                       extraFeatures)
                     ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                    written += 1
                     if extraFeatures in ["all", "rule"]:
                         ofh.write(ruleFeatures.classificationInst(src, targ, features))
-            
+
+            if dev and written == 0:
+                print("WARNING: did not write any development instances")
+                for ind, (lemma, form, feats, lang, fam, nx) in enumerate(self.sampleTargets(instances, limit, nExemplars, 
+                                                                                         balance=balanceTargets)):
+                    src = "%s:%s>%s" % (lemma, lemma, lemma)
+                    targ = form
+                    features = ruleFeatures.featureFn(lang, fam, feats, 
+                                                      getEditClass(lemma, form), 
+                                                      getEditClass(lemma, form),
+                                                      extraFeatures)
+                    ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+
 def shuffleData(data):
     inds = np.arange(data.shape[0])
     np.random.shuffle(inds)
@@ -597,25 +613,33 @@ if __name__ == "__main__":
         else:
             lang = os.path.basename(dfile)
             family = None
-            if lang.endswith(".dev") or lang.endswith(".trn"):
+            if lang.endswith(".dev") or lang.endswith(".trn") or lang.endswith(".train"):
                 #set lang fam for 2020
                 family = os.path.basename(os.path.dirname(dfile))
                 family = family.lower()
 
-            for code in ["-dev", "-test", "-train-low", "-train-high", ".trn", ".dev"]:
+            for code in ["-dev", "-test", "-train-low", "-train-high", ".trn", ".dev", ".train", ".test"]:
                 lang = lang.replace(code, "")
+
+            if re.match("[^_]+_([0-9]+)", lang):
+                lang = re.sub("_([0-9]+)$", "", lang)
 
             print("Running single dataset for", lang, "in", family)
             rawData = np.loadtxt(dfile, dtype=str, delimiter="\t")
             data = Data(rawData, lang=lang, family=family, nExemplars=args.n_exemplars, useEditClass=args.edit_class)
 
-    if not trainExists and not args.generate_file:
+    if not trainExists:
         if not args.devset:
-            data.splitDev(instances=2000)
+            #exception for very small training sets
+            if len(data) < 5000:
+                print("Small dev set exception: splitting 10% of data")
+                data.splitDev(fraction=.1)
+            else:
+                data.splitDev(instances=2000)
         else:
             lang = os.path.basename(args.devset)
             devFamily = os.path.basename(os.path.dirname(args.devset))
-            for code in ["-dev", "-test", "-train-low", "-train-high", ".trn", ".dev", ".tst"]:
+            for code in ["-dev", "-test", "-train-low", "-train-high", ".trn", ".dev", ".tst", ".test", ".train"]:
                 lang = lang.replace(code, "")
             if devFamily != "GOLD-TEST":
                 family = devFamily
@@ -623,7 +647,12 @@ if __name__ == "__main__":
             print("Identified devset as", lang, family)
 
             rawDev = np.loadtxt(args.devset, dtype=str, delimiter="\t")[:, :3]
-            data.devSet = [(lemma, form, set(feats.split(";")), lang, family) for (lemma, form, feats) in rawDev]
+            if len(rawDev[0]) == 2:
+                #test mode
+                print("File in test mode (no forms)")
+                data.devSet = [(lemma, "unknown", set(feats.split(";")), lang, family) for (lemma, feats) in rawDev]
+            else:
+                data.devSet = [(lemma, form, set(feats.split(";")), lang, family) for (lemma, form, feats) in rawDev]
 
     assert(args.edit_class != "graph" or args.edit_graph is not None)
     if args.edit_class == "graph":
@@ -632,7 +661,7 @@ if __name__ == "__main__":
 
     if args.generate_file:
         os.makedirs(run, exist_ok=True)
-        data.writeInstances("%s/dev.txt" % run, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
+        data.writeInstances("%s/dev.txt" % run, dev=True, allowSelfExemplar=args.allow_self_exemplar, limit=args.limit_train,
                             useSimilarExemplar=args.edit_class, exemplarNN=exemplarNN, 
                             extraFeatures=args.extra_features, balanceTargets=args.balance_targets, balanceExemplars=args.balance_exemplars)
         sys.exit(0)
