@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 import sys
 import pandas as pd
 import re
-from utils import edist_alt
+from utils import edist_alt, getEditClass
 
 def chunkRule(rule):
     currType = None
@@ -106,11 +107,11 @@ def locateChunksPair(ex, targ):
 
 def ruleContrast(exRule, targRule):
     cost, (alt1, alt2) = edist_alt(exRule, targRule)
-    # print("aligned", exRule, targRule)
-    # print(alt1, alt2)
+    #print("aligned", exRule, targRule)
+    #print(alt1, alt2)
     chunks, statuses = locateChunksPair(alt1, alt2)
 
-    # print("CH", chunks)
+    #print("CH", chunks)
 
     #restructure into chunked sublists
     seq = []
@@ -124,7 +125,7 @@ def ruleContrast(exRule, targRule):
 
         curr.append((item, status, stemBefore, stemAfter))
 
-    # print("AGG:", seq)
+    #print("AGG:", seq)
 
     res = set()
     for subseq in seq:
@@ -183,9 +184,13 @@ def featureFn(lang, fam, cell, targRule, exRule, extraFeatures=False):
     features = ["LANG_%s" % lang, "FAM_%s" % fam]
 
     if extraFeatures:
-        features += ["CELL_%s" % xx for xx in cell]
-        features += list(ruleDescription(targRule))
-        features += list(ruleContrast(exRule, targRule))
+        assert(extraFeatures in ["all", "rule", "cell"])
+        if extraFeatures in ["all", "cell"]:
+            features += ["CELL_%s" % xx for xx in cell]
+        if extraFeatures in ["all", "rule"]:
+            features += list(ruleDescription(targRule))
+            features += list(ruleContrast(exRule, targRule))
+
 
     return features
 
@@ -202,21 +207,35 @@ def classificationInst(src, targ, features):
     return output
 
 if __name__ == "__main__":
-    df = pd.read_csv(sys.argv[1])
-    rules = list(df["appliedRule"])
-    rules = [eval(xx) for xx in rules]
-    print(rules[:5])
+    fA = "Minimum"
+    fB = "Minima"
+    rule1 = getEditClass(fA, fB)
+    print(rule1, ruleDescription(rule1))
 
-    for ri in rules[:5]:
-        print(ri, locateChunks(ri))
+    #fC = "Parkhaus"
+    #fD = "Parkhäuser"
+    fC = "Maximum"
+    fD = "Maxima"
+    rule2 = getEditClass(fC, fD)
+    print(rule2, ruleDescription(rule2))
 
-    print("------------------------\n\n")
+    print(ruleContrast(rule1, rule2))
 
-    for ri in rules[:5]:
-        print(ri, ruleDescription(ri))
+    # df = pd.read_csv(sys.argv[1])
+    # rules = list(df["appliedRule"])
+    # rules = [eval(xx) for xx in rules]
+    # print(rules[:5])
 
-    print("------------------------\n\n")
+    # for ri in rules[:5]:
+    #     print(ri, locateChunks(ri))
 
-    for ri in rules[1:5]:
-        for rj in rules[14:15]:
-            print(ri, rj, ruleContrast(ri, rj))
+    # print("------------------------\n\n")
+
+    # for ri in rules[:5]:
+    #     print(ri, ruleDescription(ri))
+
+    # print("------------------------\n\n")
+
+    # for ri in rules[1:5]:
+    #     for rj in rules[14:15]:
+    #         print(ri, rj, ruleContrast(ri, rj))
