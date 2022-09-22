@@ -12,18 +12,20 @@ if six.PY2:
 else:
     import pickle as pkl
 
-def writeFile(dName, train, genericJob, dParent, run, jobName=None, location="fine", test=False, special=None, limitTrain=None):
-    langName = os.path.basename(train).replace(".trn", "")
+def writeFile(dName, train, genericJob, dParent, run, dev=None, jobName=None, location="fine", test=False, special=None, limitTrain=None):
+    langName = os.path.basename(train).replace(".trn", "").replace(".train", "")
     if jobName is None:
         jobName = langName
 
     fName = "%s/%s.sh" % (dName, jobName)
 
     print("writing", fName)
-    dev = train.replace(".trn", ".dev")
-    if test:
-        dev = train.replace(".trn", ".tst")
-        dev = os.path.dirname(train) + "/../../GOLD-TEST/" + os.path.basename(dev)
+    if dev is None:
+        dev = train.replace(".trn", ".dev").replace(".train", ".dev")
+        if test:
+            dev = train.replace(".trn", ".tst").replace(".train", ".test")
+            #needed this for previous, don't now
+            #dev = os.path.dirname(train) + "/../../GOLD-TEST/" + os.path.basename(dev)
     parent = dParent + "/" + "/model0/checkpoints/"
     #exnn = run + "/fine/" + langName + "-classify-variable/model0/checkpoints/"
     famName = os.path.basename(os.path.abspath(dParent))
@@ -56,7 +58,8 @@ if __name__ == "__main__":
     genericCreateDataset = "generic-createdataset.sh"
     genericDerivedSelected = "generic-derived-selected.sh"
     genericFamilyNN = "generic-family-nn.sh"
-    genericTest = "generic-testmodel.sh"
+    genericTest = "generic-testmodel-2020.sh"
+    genericOfficial = "generic-official-2020.sh"
 
     data = sys.argv[1]
     run = sys.argv[2]
@@ -72,33 +75,32 @@ if __name__ == "__main__":
     langFamily = {}
     for root, dirs, files in os.walk(data):
         for fi in files:
-            if fi.endswith(".trn"):
+            if fi.endswith(".trn") or fi.endswith(".train"):
                 dfile = root + "/" + fi
                 dfiles.append(dfile)
                 families.add(root)
                 langFamily[dfile] = root
 
     for fam in families:
-        famName = os.path.basename(fam)
+        famName = os.path.basename(fam).lower()
         writeFile("%s/jobs/fam" % odir, fam, genericFamily, dParent=run, run=run, location="fam")
         #classifier learning stack: by family
-        writeFile("%s/jobs/fam" % odir, fam, genericWriteSelection, dParent="%s/fam/%s" % (odir, famName),
-                  run=run, jobName="%s-write-select" % famName, location="fam")
-        selectDev = "%s/fam/%s-write-select/dev.txt" % (odir, famName)
-        writeFile("%s/jobs/fam" % odir, selectDev, genericEval, dParent="%s/fam/%s" % (odir, famName), run=run, 
-                  jobName="%s-eval" % famName, location="fam")
-        devOut = "%s/fam/%s-eval/%s-write-select-dev.txt/predictions_dev.txt" % (odir, famName, famName)
-        writeFile("%s/jobs/fam" % odir, devOut, genericLearnClassifier, dParent="%s/fam/%s" % (odir, famName), 
-                  run=run, jobName="%s-learn-class" % famName, location="fam")
-
-        writeFile("%s/jobs/fam" % odir, fam, genericFamilyNN, dParent="%s/fam/%s" % (odir, famName), 
-                  run=run, location="fam", jobName="%s-post-nn" % famName)
+        #writeFile("%s/jobs/fam" % odir, fam, genericWriteSelection, dParent="%s/fam/%s" % (odir, famName),
+        #          run=run, jobName="%s-write-select" % famName, location="fam")
+        #selectDev = "%s/fam/%s-write-select/dev.txt" % (odir, famName)
+        #writeFile("%s/jobs/fam" % odir, selectDev, genericEval, dParent="%s/fam/%s" % (odir, famName), run=run, 
+        #          jobName="%s-eval" % famName, location="fam")
+        #devOut = "%s/fam/%s-eval/%s-write-select-dev.txt/predictions_dev.txt" % (odir, famName, famName)
+        #writeFile("%s/jobs/fam" % odir, devOut, genericLearnClassifier, dParent="%s/fam/%s" % (odir, famName), 
+        #          run=run, jobName="%s-learn-class" % famName, location="fam")
+        #writeFile("%s/jobs/fam" % odir, fam, genericFamilyNN, dParent="%s/fam/%s" % (odir, famName), 
+        #          run=run, location="fam", jobName="%s-post-nn" % famName)
 
     for df in dfiles:
         #writeFile("%s/jobs/fine" % odir, df, genericDerived, dParent="%s/fam/%s" % (odir, famName), run=run)
 
         #classifier learning stack: by language
-        langName = os.path.basename(df).replace(".trn", "")
+        langName = os.path.basename(df).replace(".trn", "").replace(".train", "")
         famName = os.path.basename(os.path.dirname(df))
         #writeFile("%s/jobs/fine" % odir, df, genericWriteSelection, dParent="%s/fam/%s" % (odir, famName),
         #          run=run, jobName="%s-write-select" % langName)
@@ -108,10 +110,13 @@ if __name__ == "__main__":
         #devOut = "%s/fine/%s-eval/%s-write-select-dev.txt/predictions_dev.txt" % (odir, langName, langName)
         #writeFile("%s/jobs/fine" % odir, devOut, genericLearnClassifier, dParent="%s/fam/%s" % (odir, famName), 
         #          run=run, jobName="%s-classify-variable" % langName)
-        writeFile("%s/jobs/fine" % odir, df, genericCreateDataset, dParent="%s/fam/%s" % (odir, famName), run=run,
-                  jobName="%s-create-dataset" % langName)
+        #writeFile("%s/jobs/fine" % odir, df, genericCreateDataset, dParent="%s/fam/%s" % (odir, famName), run=run,
+        #          jobName="%s-create-dataset" % langName)
 
         writeFile("%s/jobs/fine" % odir, df, genericDerived, dParent="%s/fam/%s" % (odir, famName), run=run)
+
+        writeFile("%s/jobs/fine" % odir, df, genericOfficial, dParent="%s/fam/%s" % (odir, famName), run=run, jobName="%s-official" % langName,
+                  special=langName)
 
         writeFile("%s/jobs/fine" % odir, df, genericTest, dParent="%s/fine/%s" % (odir, langName), run=run, test=True,
                   jobName="%s-test" % langName)

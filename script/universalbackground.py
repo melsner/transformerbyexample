@@ -1,6 +1,7 @@
 from __future__ import division, print_function
 import sys
 from collections import defaultdict, Counter
+import re
 import os
 import numpy as np
 import argparse
@@ -76,7 +77,7 @@ def discoverVocab(dpath):
             lang = fi
             family = None
             valid = False
-            for code in ["-dev", "-test", "-train-low", "-train-high", ".dev", ".trn"]:
+            for code in ["-dev", "-test", "-train-low", "-train-high", ".dev", ".trn", ".train"]:
                 if code in lang:
                     if lang.endswith(".dev") or lang.endswith(".trn"):
                         #set lang fam for 2020
@@ -86,6 +87,10 @@ def discoverVocab(dpath):
                     lang = lang.replace(code, "")
                     families[lang] = family
                     valid = True
+
+            #set language code for 2022 by stripping training set size
+            if re.match("[^_]+_([0-9]+)", lang):
+                lang = re.sub("_([0-9]+)$", "", lang)
 
             if not valid:
                 continue

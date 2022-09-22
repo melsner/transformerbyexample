@@ -137,6 +137,7 @@ def scoreDir(fpath):
             lemma = src[:src.index(":")]
             lemma, targ, pred = digraphify(lemma), digraphify(targ), digraphify(pred)
             rule = getEditClass(lemma, targ)
+
             # print("".join(lemma), "\t", "".join(targ), "\t", 
             #       "".join(pred), "".join(rule), ruleType(rule), correct)
 
