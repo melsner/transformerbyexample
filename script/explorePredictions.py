@@ -65,10 +65,15 @@ if __name__ == "__main__":
                           "nld" : "germanic",
                           "eng" : "germanic",
                           "gle" : "celtic",
+                          "isl" : "Icelandic",
+                          "klr" : "", #how did this happen?
+                          "sme" : "North_Sami",
                           "zul" : "romance" #placeholder for spanish
     }
 
     print("Loaded data")
+    if args.no_exemplars:
+        print("No exemplars mode active.")
 
     #srcLemma = "Adeliepinguin"
     #targ = "Adeliepinguine"
@@ -93,7 +98,7 @@ if __name__ == "__main__":
                 targ = targ.replace(" ", "")
 
             cell = frozenset(cell.split(";"))
-            if srcLemma in lemmas:
+            if srcLemma in lemmas and not args.no_exemplars:
                 continue
 
             lemmas.add(srcLemma)
@@ -105,31 +110,45 @@ if __name__ == "__main__":
             assert(fullCell in data.byEditClass)
 
             sub = data.byEditClass[fullCell]
-            for edCl in sub:
-                mostFreq = mostFrequentWord(data, edCl)
-                words = data.byEditClass[fullCell][edCl]
 
-                if args.limit_train and len(words) <= args.limit_train:
-                    continue
+            if args.no_exemplars:
+                src = srcLemma
 
-                sample = [words[xx] for xx in 
-                          np.random.choice(len(words), min(len(words), nSamples),
-                                           replace=False)]
-                for xi in sample:
-                    exLemma, exForm, exFeats, exLang = xi
-                    if exLemma == srcLemma:
-                        continue #no self exemplars
+                features = ruleFeatures.featureFn(lang, fam,
+                                                  cell,
+                                                  getEditClass("", ""),
+                                                  getEditClass("", ""),
+                                                  extraFeatures=args.extra_features)
+                ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                classFh.write(ruleFeatures.classificationInst(src, targ, features))
+            else:
 
-                    src = "%s:%s>%s" % (srcLemma, exLemma, exForm)
-
-                    features = ruleFeatures.featureFn(lang, fam,
-                                                      cell,
-                                                      getEditClass(exLemma, exForm),
-                                                      getEditClass(exLemma, exForm),
-                                                      extraFeatures="all")
-                    ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
-                    row = [getEditClass(exLemma, exForm), len(words), mostFreq,
-                           "%s>%s" % (words[0][0], words[0][1])]
-                    editFh.write("\t".join([str(xx) for xx in row]))
-                    editFh.write("\n")
-                    classFh.write(ruleFeatures.classificationInst(src, targ, features))
+                for edCl in sub:
+                    mostFreq = mostFrequentWord(data, edCl)
+                    words = data.byEditClass[fullCell][edCl]
+    
+                    if args.limit_train and len(words) <= args.limit_train:
+                        continue
+    
+                    sample = [words[xx] for xx in 
+                              np.random.choice(len(words), min(len(words), nSamples),
+                                               replace=False)]
+                    for xi in sample:
+                        exLemma, exForm, exFeats, exLang = xi
+                        if exLemma == srcLemma:
+                            continue #no self exemplars
+    
+                        src = "%s:%s>%s" % (srcLemma, exLemma, exForm)
+    
+                        features = ruleFeatures.featureFn(lang, fam,
+                                                          cell,
+                                                          getEditClass(exLemma, exForm),
+                                                          getEditClass(exLemma, exForm),
+                                                          extraFeatures=args.extra_features)
+                        ofh.write("%s\t%s\t%s\n" % (src, targ, ";".join(features)))
+                        row = [getEditClass(exLemma, exForm), len(words), mostFreq,
+                               "%s>%s" % (words[0][0], words[0][1])]
+                        editFh.write("\t".join([str(xx) for xx in row]))
+                        editFh.write("\n")
+                        classFh.write(ruleFeatures.classificationInst(src, targ, features))
+    
