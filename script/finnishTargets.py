@@ -18,7 +18,16 @@ if __name__ == "__main__":
                 (lemma, form, feats) = line.strip().split("\t")
                 fs = frozenset(feats.split(";"))
 
-                if fs != set(["N", "IN+ESS", "PL"]):
+                #Finnish
+                #if fs != set(["N", "IN+ESS", "PL"]):
+                #Icelandic
+                #if fs != set(["V", "NOM(1,SG)", "IND", "PRS"]):
+                #irish
+                #if fs != set(["N", "GEN(SG)"]):
+                #khaling
+                #if fs != set(["V", "PRS", "1", "SG", "INTR", "POS"]):
+                #nth sami
+                if fs != set(["N", "COM", "SG"]):
                     continue
 
                 rule = getEditClass(lemma, form)
@@ -40,7 +49,7 @@ if __name__ == "__main__":
     with open(out, "w") as outfh:
         for fs in byRule:
             for rule, mems in sorted(byRule[fs].items(), key=lambda xx: len(xx[1]), reverse=True):
-                if len(mems) > 100:
+                if len(mems) > 5:
                     np.random.shuffle(mems)
                     samples = mems[:20]
                     for si in samples:
