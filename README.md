@@ -60,7 +60,7 @@ alignment microclass:
 
 (2) Translate the targets file into a set of instances with exemplars
 
-	run python --run  morphomic_sme/probe/probe --data ../relevant/unimorph/Uralic/North_Sami/sme.trn --dev morphomic_sme/probe/sme.dev --nospace --extra_features=all
+	run python --run  script/explorePredictions.py morphomic_sme/probe/probe --data ../relevant/unimorph/Uralic/North_Sami/sme.trn --dev morphomic_sme/probe/sme.dev --nospace --extra_features=all
 	(--run: a new directory to put working files in)
 	(--data: the data to select exemplars from)
 	(--dev: the target file you created in the previous step)
